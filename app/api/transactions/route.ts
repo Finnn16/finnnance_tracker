@@ -9,7 +9,7 @@ import {
   TransactionType,
   UserRole,
 } from "@/lib/prisma-enums";
-import type { Prisma } from "@/lib/generated/prisma/client";
+import type { PrismaTransactionClient } from "@/lib/prisma-transaction";
 import { prisma } from "@/lib/prisma";
 import { getUnlockedAppUserForRequest } from "@/lib/secure-api-user";
 import { validateTransactionPayload } from "@/lib/transactions";
@@ -210,7 +210,7 @@ export async function POST(request: NextRequest) {
   }
 
   const createdTransactions = await prisma.$transaction(
-    async (tx: Prisma.TransactionClient) => {
+    async (tx: PrismaTransactionClient) => {
       const createdTransfer = await tx.transaction.create({
         data: {
           userId: auth.user.id,

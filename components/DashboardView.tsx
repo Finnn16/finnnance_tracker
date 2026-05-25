@@ -31,6 +31,43 @@ type DashboardWidget = {
   size: "medium" | "large";
 };
 
+type WalletBalanceView = {
+  id: string;
+  name: string;
+  typeLabel: string;
+  ownerName: string;
+  currentBalance: number;
+};
+
+type BudgetItemView = {
+  id: string;
+  userName: string;
+  categoryName: string;
+  amount: number;
+  spent: number;
+};
+
+type BudgetView = {
+  totalBudget: number;
+  spent: number;
+  usedPercentage: number;
+  remaining: number;
+  items: BudgetItemView[];
+};
+
+type RecentTransactionView = {
+  id: string;
+  type: TransactionType;
+  amount: number;
+  description: string;
+  userName: string;
+  walletName: string;
+  transferToWalletName: string | null;
+  categoryName: string | null;
+  budgetCategoryName: string | null;
+  transactionDate: string;
+};
+
 const defaultWidgets: DashboardWidget[] = [
   {
     id: "cashflow",
@@ -504,14 +541,14 @@ function TopCategories({
   );
 }
 
-function WalletBalances({ wallets }: { wallets: DashboardData["wallets"] }) {
+function WalletBalances({ wallets }: { wallets: WalletBalanceView[] }) {
   if (wallets.length === 0) {
     return <EmptyState text="No wallets yet." />;
   }
 
   return (
     <div className="space-y-3">
-      {wallets.slice(0, 6).map((wallet) => (
+      {wallets.slice(0, 6).map((wallet: WalletBalanceView) => (
         <div
           key={wallet.id}
           className="flex items-center justify-between gap-3 rounded-lg bg-zinc-50 px-3 py-3"
@@ -531,7 +568,7 @@ function WalletBalances({ wallets }: { wallets: DashboardData["wallets"] }) {
   );
 }
 
-function BudgetProgress({ budget }: { budget: DashboardData["budget"] }) {
+function BudgetProgress({ budget }: { budget: BudgetView }) {
   const usage = budget.usedPercentage;
 
   if (budget.totalBudget <= 0) {
@@ -575,7 +612,7 @@ function BudgetProgress({ budget }: { budget: DashboardData["budget"] }) {
         {formatRupiah(budget.remaining)}.
       </p>
       <div className="mt-4 space-y-2">
-        {budget.items.map((item) => (
+        {budget.items.map((item: BudgetItemView) => (
           <div
             key={item.id}
             className="rounded-lg bg-zinc-50 px-3 py-3 text-sm text-zinc-600"
@@ -601,7 +638,7 @@ function BudgetProgress({ budget }: { budget: DashboardData["budget"] }) {
 function RecentTransactions({
   transactions,
 }: {
-  transactions: DashboardData["recentTransactions"];
+  transactions: RecentTransactionView[];
 }) {
   if (transactions.length === 0) {
     return <EmptyState text="No recent transactions." />;
@@ -609,7 +646,7 @@ function RecentTransactions({
 
   return (
     <div className="space-y-3">
-      {transactions.map((transaction) => (
+      {transactions.map((transaction: RecentTransactionView) => (
         <div
           key={transaction.id}
           className="flex items-center justify-between gap-3 rounded-lg border border-zinc-100 px-3 py-3"

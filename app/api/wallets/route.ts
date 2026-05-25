@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
+import type { PrismaTransactionClient } from "@/lib/prisma-transaction";
 import { getUnlockedAppUserForRequest } from "@/lib/secure-api-user";
 import { createWalletKey, validateWalletPayload } from "@/lib/wallets";
 
@@ -73,26 +74,28 @@ export async function POST(request: NextRequest) {
   const isDefault = result.data.isDefault || walletCount === 0;
 
   try {
-    const wallet = await prisma.$transaction(async (tx) => {
-      if (isDefault) {
-        await tx.wallet.updateMany({
-          where: { userId: auth.user.id, isDefault: true },
-          data: { isDefault: false },
-        });
-      }
+    const wallet = await prisma.$transaction(
+      async (tx: PrismaTransactionClient) => {
+        if (isDefault) {
+          await tx.wallet.updateMany({
+            where: { userId: auth.user.id, isDefault: true },
+            data: { isDefault: false },
+          });
+        }
 
-      return tx.wallet.create({
-        data: {
-          userId: auth.user.id,
-          key,
-          name,
-          type,
-          initialBalance,
-          currentBalance: initialBalance,
-          isDefault,
-        },
-      });
-    });
+        return tx.wallet.create({
+          data: {
+            userId: auth.user.id,
+            key,
+            name,
+            type,
+            initialBalance,
+            currentBalance: initialBalance,
+            isDefault,
+          },
+        });
+      },
+    );
 
     return NextResponse.json({ wallet }, { status: 201 });
   } catch (error) {

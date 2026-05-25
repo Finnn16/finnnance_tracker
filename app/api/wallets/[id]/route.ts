@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
+import type { PrismaTransactionClient } from "@/lib/prisma-transaction";
 import { getUnlockedAppUserForRequest } from "@/lib/secure-api-user";
 import { createWalletKey, validateWalletPayload } from "@/lib/wallets";
 
@@ -8,7 +9,10 @@ type WalletRouteProps = {
   params: Promise<{ id: string }>;
 };
 
-export async function PATCH(request: NextRequest, { params }: WalletRouteProps) {
+export async function PATCH(
+  request: NextRequest,
+  { params }: WalletRouteProps,
+) {
   const auth = await getUnlockedAppUserForRequest();
 
   if (!auth.ok) {
@@ -48,29 +52,32 @@ export async function PATCH(request: NextRequest, { params }: WalletRouteProps) 
     select: { id: true },
   });
   const isDefault =
-    result.data.isDefault || (existingWallet.isDefault && !hasOtherDefaultWallet);
+    result.data.isDefault ||
+    (existingWallet.isDefault && !hasOtherDefaultWallet);
 
   try {
-    const wallet = await prisma.$transaction(async (tx) => {
-      if (isDefault) {
-        await tx.wallet.updateMany({
-          where: { userId: auth.user.id, isDefault: true, id: { not: id } },
-          data: { isDefault: false },
-        });
-      }
+    const wallet = await prisma.$transaction(
+      async (tx: PrismaTransactionClient) => {
+        if (isDefault) {
+          await tx.wallet.updateMany({
+            where: { userId: auth.user.id, isDefault: true, id: { not: id } },
+            data: { isDefault: false },
+          });
+        }
 
-      return tx.wallet.update({
-        where: { id },
-        data: {
-          key: createWalletKey(name),
-          name,
-          type,
-          initialBalance,
-          currentBalance: existingWallet.currentBalance + balanceDelta,
-          isDefault,
-        },
-      });
-    });
+        return tx.wallet.update({
+          where: { id },
+          data: {
+            key: createWalletKey(name),
+            name,
+            type,
+            initialBalance,
+            currentBalance: existingWallet.currentBalance + balanceDelta,
+            isDefault,
+          },
+        });
+      },
+    );
 
     return NextResponse.json({ wallet });
   } catch (error) {
@@ -134,7 +141,7 @@ export async function DELETE(
     );
   }
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: PrismaTransactionClient) => {
     await tx.wallet.delete({ where: { id } });
 
     if (wallet.isDefault) {

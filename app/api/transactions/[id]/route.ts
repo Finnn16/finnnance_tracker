@@ -5,7 +5,7 @@ import {
   TransactionType,
   UserRole,
 } from "@/lib/prisma-enums";
-import type { Prisma } from "@/lib/generated/prisma/client";
+import type { PrismaTransactionClient } from "@/lib/prisma-transaction";
 import { prisma } from "@/lib/prisma";
 import { getUnlockedAppUserForRequest } from "@/lib/secure-api-user";
 import {
@@ -195,7 +195,7 @@ export async function PATCH(
   }
 
   const updatedTransaction = await prisma.$transaction(
-    async (tx: Prisma.TransactionClient) => {
+    async (tx: PrismaTransactionClient) => {
       await applyTransactionBalanceEffect(tx, existingTransaction, -1);
 
       const updated = await tx.transaction.update({
@@ -265,7 +265,7 @@ export async function DELETE(
     );
   }
 
-  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+  await prisma.$transaction(async (tx: PrismaTransactionClient) => {
     await applyTransactionBalanceEffect(tx, existingTransaction, -1);
 
     if (existingTransaction.type === TransactionType.TRANSFER) {

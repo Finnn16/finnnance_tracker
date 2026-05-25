@@ -1,4 +1,4 @@
-import { TransactionType } from "@/lib/prisma-enums";
+import { TransactionType, WalletType } from "@/lib/prisma-enums";
 import { prisma } from "@/lib/prisma";
 import { getWalletTypeLabel } from "@/lib/wallets";
 
@@ -27,6 +27,55 @@ function formatMonthRange(start: Date, end: Date) {
   return `${formatShortDate(start)} - ${formatShortDate(endDate)}`;
 }
 
+type DashboardWalletRow = {
+  id: string;
+  name: string;
+  type: WalletType;
+  currentBalance: number;
+  isDefault: boolean;
+  user: {
+    name: string;
+  };
+};
+
+type DashboardBudgetRow = {
+  id: string;
+  amount: number;
+  budgetCategoryId: string | null;
+  user: {
+    name: string;
+  };
+  budgetCategory?: {
+    id: string;
+    name: string;
+  } | null;
+};
+
+type DashboardTransactionRow = {
+  id: string;
+  type: TransactionType;
+  amount: number;
+  transactionDate: Date;
+  description: string;
+  category?: {
+    name: string;
+  } | null;
+  budgetCategory?: {
+    id?: string;
+    name: string;
+  } | null;
+  budgetCategoryId?: string | null;
+  user: {
+    name: string;
+  };
+  wallet: {
+    name: string;
+  };
+  transferToWallet?: {
+    name: string;
+  } | null;
+};
+
 export async function getDashboardData() {
   const now = new Date();
   const monthStart = startOfMonth(now);
@@ -35,7 +84,7 @@ export async function getDashboardData() {
   chartStart.setDate(chartStart.getDate() - 6);
   const activityStart = chartStart < monthStart ? chartStart : monthStart;
 
-  const [wallets, activityTransactions, recent, budgets] = await Promise.all([
+  const [wallets, activityTransactions, recent, budgets] = (await Promise.all([
     prisma.wallet.findMany({
       include: { user: { select: { name: true } } },
       orderBy: [
@@ -78,20 +127,33 @@ export async function getDashboardData() {
       },
       orderBy: [{ user: { name: "asc" } }, { budgetCategory: { name: "asc" } }],
     }),
-  ]);
+  ])) as [
+    DashboardWalletRow[],
+    DashboardTransactionRow[],
+    DashboardTransactionRow[],
+    DashboardBudgetRow[],
+  ];
 
   const monthTransactions = activityTransactions.filter(
-    (transaction) => transaction.transactionDate >= monthStart,
+    (transaction: DashboardTransactionRow) =>
+      transaction.transactionDate >= monthStart,
   );
   const chartTransactions = activityTransactions.filter(
-    (transaction) => transaction.transactionDate >= chartStart,
+    (transaction: DashboardTransactionRow) =>
+      transaction.transactionDate >= chartStart,
   );
 
   const income = monthTransactions
-    .filter((transaction) => transaction.type === TransactionType.INCOME)
+    .filter(
+      (transaction: DashboardTransactionRow) =>
+        transaction.type === TransactionType.INCOME,
+    )
     .reduce((total, transaction) => total + transaction.amount, 0);
   const expense = monthTransactions
-    .filter((transaction) => transaction.type === TransactionType.EXPENSE)
+    .filter(
+      (transaction: DashboardTransactionRow) =>
+        transaction.type === TransactionType.EXPENSE,
+    )
     .reduce((total, transaction) => total + transaction.amount, 0);
   const totalBalance = wallets.reduce(
     (total, wallet) => total + wallet.currentBalance,
@@ -149,7 +211,7 @@ export async function getDashboardData() {
     .sort((a, b) => b.amount - a.amount)
     .slice(0, 5);
 
-  const chartDays = Array.from({ length: 7 }, (_, index) => {
+  const chartDays = Array.from({ length: 7 }, (_, index: number) => {
     const date = startOfDay(new Date(chartStart));
     date.setDate(chartStart.getDate() + index);
 
@@ -247,7 +309,7 @@ export async function getDashboardData() {
       expense: day.expense,
     })),
     topCategories,
-    wallets: wallets.map((wallet) => ({
+    wallets: wallets.map((wallet: DashboardWalletRow) => ({
       id: wallet.id,
       name: wallet.name,
       type: wallet.type,
@@ -256,7 +318,7 @@ export async function getDashboardData() {
       currentBalance: wallet.currentBalance,
       isDefault: wallet.isDefault,
     })),
-    recentTransactions: recent.map((transaction) => ({
+    recentTransactions: recent.map((transaction: DashboardTransactionRow) => ({
       id: transaction.id,
       type: transaction.type,
       amount: transaction.amount,

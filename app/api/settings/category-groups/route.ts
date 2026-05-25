@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { TransactionType } from "@/lib/prisma-enums";
-import type { Prisma } from "@/lib/generated/prisma/client";
+import type { PrismaTransactionClient } from "@/lib/prisma-transaction";
 import { prisma } from "@/lib/prisma";
 import { getUnlockedAppUserForRequest } from "@/lib/secure-api-user";
 import { createCategoryGroupKey } from "@/lib/categories";
@@ -188,7 +188,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   const updated = await prisma.$transaction(
-    async (tx: Prisma.TransactionClient) => {
+    async (tx: PrismaTransactionClient) => {
       await tx.category.updateMany({
         where: { type, group: name, isSelectable: true },
         data: { group: newName },

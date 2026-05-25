@@ -4,9 +4,23 @@ import Link from "next/link";
 import { AppLockButton } from "@/components/AppLockButton";
 import { WalletsClient } from "@/components/WalletsClient";
 import { prisma } from "@/lib/prisma";
+import { WalletType } from "@/lib/prisma-enums";
 import { requireUnlockedAppUser } from "@/lib/secure-app-user";
 
 export const dynamic = "force-dynamic";
+
+type WalletRow = {
+  id: string;
+  name: string;
+  type: WalletType;
+  initialBalance: number;
+  currentBalance: number;
+  isDefault: boolean;
+  _count: {
+    transactions: number;
+    transferTransactions: number;
+  };
+};
 
 export default async function WalletsPage() {
   const user = await requireUnlockedAppUser("/wallets");
@@ -23,7 +37,7 @@ export default async function WalletsPage() {
     orderBy: [{ isDefault: "desc" }, { name: "asc" }],
   });
 
-  const walletViews = wallets.map((wallet) => ({
+  const walletViews = wallets.map((wallet: WalletRow) => ({
     id: wallet.id,
     name: wallet.name,
     type: wallet.type,
