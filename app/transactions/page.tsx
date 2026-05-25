@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import { AppLockButton } from "@/components/AppLockButton";
 import { TransactionsClient } from "@/components/TransactionsClient";
-import { UserRole } from "@/lib/generated/prisma/enums";
+import { UserRole } from "@/lib/prisma-enums";
 import { prisma } from "@/lib/prisma";
 import { requireUnlockedAppUser } from "@/lib/secure-app-user";
 
@@ -41,7 +41,7 @@ export default async function TransactionsPage() {
       }),
     ]);
 
-  const transactionViews = transactions.map((transaction) => ({
+  const transactionViews = transactions.map((transaction: (typeof transactions)[number]) => ({
     id: transaction.id,
     userId: transaction.userId,
     userName: transaction.user.name,

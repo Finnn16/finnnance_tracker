@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { validateAndSyncUser } from "@/lib/auth";
 import { env } from "@/lib/env";
-import { UserRole } from "@/lib/generated/prisma/enums";
+import { UserRole } from "@/lib/prisma-enums";
 import { prisma } from "@/lib/prisma";
 
 type AppUser = {
@@ -117,7 +117,9 @@ export async function getCurrentAppUser() {
   }
 
   if (!result.user) {
-    redirect(`/access-denied?error=${encodeURIComponent(result.error || "Unauthorized")}`);
+    redirect(
+      `/access-denied?error=${encodeURIComponent(result.error || "Unauthorized")}`,
+    );
   }
 
   return result.user;

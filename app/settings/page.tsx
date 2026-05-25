@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import { AppLockButton } from "@/components/AppLockButton";
 import { SettingsClient } from "@/components/SettingsClient";
-import { UserRole } from "@/lib/generated/prisma/enums";
+import { UserRole } from "@/lib/prisma-enums";
 import { prisma } from "@/lib/prisma";
 import { requireUnlockedAppUser } from "@/lib/secure-app-user";
 
@@ -72,7 +72,7 @@ export default async function SettingsPage() {
 
         <main className="mx-auto min-h-0 w-full max-w-6xl flex-1 overflow-hidden px-4 py-5 sm:px-6 lg:px-8">
           <SettingsClient
-            initialCategories={categories.map((category) => ({
+            initialCategories={categories.map((category: (typeof categories)[number]) => ({
               id: category.id,
               name: category.name,
               type: category.type,
@@ -81,14 +81,14 @@ export default async function SettingsPage() {
               isFallback: category.isFallback,
               transactionCount: category._count.transactions,
             }))}
-            initialCategoryGroups={categoryGroups.map((group) => ({
+            initialCategoryGroups={categoryGroups.map((group: (typeof categoryGroups)[number]) => ({
               id: group.id,
               name: group.name,
               type: group.type,
               group: group.group,
             }))}
             initialBudgets={[]}
-            initialBudgetCategories={budgetCategories.map((category) => ({
+            initialBudgetCategories={budgetCategories.map((category: (typeof budgetCategories)[number]) => ({
               id: category.id,
               userId: category.userId,
               userName: category.user.name,

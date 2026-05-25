@@ -3,7 +3,7 @@
 import { FormEvent, ReactNode, useMemo, useState } from "react";
 
 import { monthInputValue } from "@/lib/budgets";
-import { TransactionType, UserRole } from "@/lib/generated/prisma/enums";
+import { TransactionType, UserRole } from "@/lib/prisma-enums";
 import { formatRupiah } from "@/lib/money";
 import { transactionTypeOptions } from "@/lib/transactions";
 

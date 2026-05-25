@@ -8,7 +8,8 @@ import {
   TransactionSource,
   TransactionType,
   UserRole,
-} from "@/lib/generated/prisma/enums";
+} from "@/lib/prisma-enums";
+import type { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getUnlockedAppUserForRequest } from "@/lib/secure-api-user";
 import { validateTransactionPayload } from "@/lib/transactions";
@@ -168,7 +169,7 @@ export async function GET() {
   });
 
   return NextResponse.json({
-    transactions: transactions.map((transaction) =>
+    transactions: transactions.map((transaction: TransactionWithRelations) =>
       toTransactionView(transaction, auth.user.id, auth.user.role),
     ),
   });
@@ -208,7 +209,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const createdTransactions = await prisma.$transaction(async (tx) => {
+  const createdTransactions = await prisma.$transaction(
+    async (tx: Prisma.TransactionClient) => {
     const createdTransfer = await tx.transaction.create({
       data: {
         userId: auth.user.id,
@@ -271,11 +273,12 @@ export async function POST(request: NextRequest) {
     );
 
     return [createdTransfer, createdFee];
-  });
+    },
+  );
 
   return NextResponse.json(
     {
-      transactions: createdTransactions.map((transaction) =>
+      transactions: createdTransactions.map((transaction: TransactionWithRelations) =>
         toTransactionView(transaction, auth.user.id, auth.user.role),
       ),
     },

@@ -1,4 +1,4 @@
-import { WalletType } from "@/lib/generated/prisma/enums";
+import { WalletType } from "@/lib/prisma-enums";
 import { parseIntegerAmount } from "@/lib/money";
 
 export const walletTypeOptions: Array<{ value: WalletType; label: string }> = [
@@ -13,7 +13,9 @@ export const walletTypeOptions: Array<{ value: WalletType; label: string }> = [
   { value: WalletType.OTHER, label: "Other" },
 ];
 
-const walletTypeValues = new Set(walletTypeOptions.map((option) => option.value));
+const walletTypeValues = new Set(
+  walletTypeOptions.map((option) => option.value),
+);
 
 export type WalletPayload = {
   name: string;
@@ -38,9 +40,9 @@ export function getWalletTypeLabel(type: WalletType) {
   );
 }
 
-export function validateWalletPayload(body: unknown):
-  | { ok: true; data: WalletPayload }
-  | { ok: false; error: string } {
+export function validateWalletPayload(
+  body: unknown,
+): { ok: true; data: WalletPayload } | { ok: false; error: string } {
   const input = body as {
     name?: unknown;
     type?: unknown;

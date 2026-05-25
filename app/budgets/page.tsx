@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import { AppLockButton } from "@/components/AppLockButton";
 import { SettingsClient } from "@/components/SettingsClient";
-import { UserRole } from "@/lib/generated/prisma/enums";
+import { UserRole } from "@/lib/prisma-enums";
 import { prisma } from "@/lib/prisma";
 import { requireUnlockedAppUser } from "@/lib/secure-app-user";
 
@@ -62,7 +62,8 @@ export default async function BudgetsPage() {
           <SettingsClient
             view="budgets"
             initialCategories={[]}
-            initialBudgets={budgets.map((budget) => ({
+            initialCategoryGroups={[]}
+            initialBudgets={budgets.map((budget: (typeof budgets)[number]) => ({
               id: budget.id,
               userId: budget.userId,
               userName: budget.user.name,
@@ -73,7 +74,7 @@ export default async function BudgetsPage() {
               month: budget.month.toISOString(),
               amount: budget.amount,
             }))}
-            initialBudgetCategories={budgetCategories.map((category) => ({
+            initialBudgetCategories={budgetCategories.map((category: (typeof budgetCategories)[number]) => ({
               id: category.id,
               userId: category.userId,
               userName: category.user.name,

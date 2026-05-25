@@ -1,4 +1,4 @@
-import { TransactionType } from "@/lib/generated/prisma/enums";
+import { TransactionType } from "@/lib/prisma-enums";
 import { prisma } from "@/lib/prisma";
 import { getWalletTypeLabel } from "@/lib/wallets";
 
@@ -33,50 +33,52 @@ export async function getDashboardData() {
   const nextMonthStart = startOfNextMonth(now);
   const chartStart = startOfDay(new Date(now));
   chartStart.setDate(chartStart.getDate() - 6);
-  const activityStart =
-    chartStart < monthStart ? chartStart : monthStart;
+  const activityStart = chartStart < monthStart ? chartStart : monthStart;
 
-  const [wallets, activityTransactions, recent, budgets] =
-    await Promise.all([
-      prisma.wallet.findMany({
-        include: { user: { select: { name: true } } },
-        orderBy: [{ user: { name: "asc" } }, { isDefault: "desc" }, { name: "asc" }],
-      }),
-      prisma.transaction.findMany({
-        where: {
-          transactionDate: {
-            gte: activityStart,
-            lt: nextMonthStart,
-          },
+  const [wallets, activityTransactions, recent, budgets] = await Promise.all([
+    prisma.wallet.findMany({
+      include: { user: { select: { name: true } } },
+      orderBy: [
+        { user: { name: "asc" } },
+        { isDefault: "desc" },
+        { name: "asc" },
+      ],
+    }),
+    prisma.transaction.findMany({
+      where: {
+        transactionDate: {
+          gte: activityStart,
+          lt: nextMonthStart,
         },
-        include: {
-          user: { select: { name: true } },
-          wallet: { select: { name: true } },
-          transferToWallet: { select: { name: true } },
-          category: { select: { name: true } },
-          budgetCategory: { select: { id: true, name: true } },
-        },
-      }),
-      prisma.transaction.findMany({
-        include: {
-          user: { select: { name: true } },
-          wallet: { select: { name: true } },
-          transferToWallet: { select: { name: true } },
-          category: { select: { name: true } },
-          budgetCategory: { select: { name: true } },
-        },
-        orderBy: [{ transactionDate: "desc" }, { createdAt: "desc" }],
-        take: 8,
-      }),
-      prisma.budget.findMany({
-        where: { month: monthStart },
-        include: {
-          user: { select: { name: true } },
-          budgetCategory: { select: { id: true, name: true } },
-        },
-        orderBy: [{ user: { name: "asc" } }, { budgetCategory: { name: "asc" } }],
-      }),
-    ]);
+      },
+      include: {
+        user: { select: { name: true } },
+        wallet: { select: { name: true } },
+        transferToWallet: { select: { name: true } },
+        category: { select: { name: true } },
+        budgetCategory: { select: { id: true, name: true } },
+      },
+    }),
+    prisma.transaction.findMany({
+      include: {
+        user: { select: { name: true } },
+        wallet: { select: { name: true } },
+        transferToWallet: { select: { name: true } },
+        category: { select: { name: true } },
+        budgetCategory: { select: { name: true } },
+      },
+      orderBy: [{ transactionDate: "desc" }, { createdAt: "desc" }],
+      take: 8,
+    }),
+    prisma.budget.findMany({
+      where: { month: monthStart },
+      include: {
+        user: { select: { name: true } },
+        budgetCategory: { select: { id: true, name: true } },
+      },
+      orderBy: [{ user: { name: "asc" } }, { budgetCategory: { name: "asc" } }],
+    }),
+  ]);
 
   const monthTransactions = activityTransactions.filter(
     (transaction) => transaction.transactionDate >= monthStart,
@@ -162,10 +164,9 @@ export async function getDashboardData() {
   });
 
   for (const transaction of chartTransactions) {
-    const key = startOfDay(transaction.transactionDate).toISOString().slice(
-      0,
-      10,
-    );
+    const key = startOfDay(transaction.transactionDate)
+      .toISOString()
+      .slice(0, 10);
     const day = chartDays.find((item) => item.key === key);
 
     if (!day) {

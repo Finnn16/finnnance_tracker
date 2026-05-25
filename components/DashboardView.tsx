@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 
 import { AppLockButton } from "@/components/AppLockButton";
 import { DashboardData } from "@/lib/dashboard";
-import { TransactionType } from "@/lib/generated/prisma/enums";
+import { TransactionType } from "@/lib/prisma-enums";
 import { formatRupiah } from "@/lib/money";
 
 type CurrentUser = {
@@ -331,7 +331,9 @@ function SummaryMetricCard({
             {value}
           </p>
         </div>
-        <span className={`rounded-lg px-2 py-1 text-xs font-semibold ${toneClass}`}>
+        <span
+          className={`rounded-lg px-2 py-1 text-xs font-semibold ${toneClass}`}
+        >
           {detail}
         </span>
       </div>
@@ -404,7 +406,13 @@ function WidgetSlot({
   );
 }
 
-function WidgetHeader({ title, subtitle }: { title: string; subtitle: string }) {
+function WidgetHeader({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle: string;
+}) {
   return (
     <div className="mb-5 flex items-start justify-between gap-3">
       <div>
@@ -416,11 +424,7 @@ function WidgetHeader({ title, subtitle }: { title: string; subtitle: string }) 
   );
 }
 
-function CashflowChart({
-  data,
-}: {
-  data: DashboardData["cashflow"];
-}) {
+function CashflowChart({ data }: { data: DashboardData["cashflow"] }) {
   const maxValue = Math.max(
     1,
     ...data.flatMap((day) => [day.income, day.expense]),
@@ -434,14 +438,20 @@ function CashflowChart({
             <div className="flex h-52 w-full items-end justify-center gap-1">
               <div
                 className="w-3 rounded-t bg-blue-500"
-                style={{ height: `${Math.max(6, (day.income / maxValue) * 100)}%` }}
+                style={{
+                  height: `${Math.max(6, (day.income / maxValue) * 100)}%`,
+                }}
               />
               <div
                 className="w-3 rounded-t bg-red-300"
-                style={{ height: `${Math.max(6, (day.expense / maxValue) * 100)}%` }}
+                style={{
+                  height: `${Math.max(6, (day.expense / maxValue) * 100)}%`,
+                }}
               />
             </div>
-            <p className="mt-3 text-xs font-medium text-zinc-500">{day.label}</p>
+            <p className="mt-3 text-xs font-medium text-zinc-500">
+              {day.label}
+            </p>
           </div>
         ))}
       </div>
@@ -494,11 +504,7 @@ function TopCategories({
   );
 }
 
-function WalletBalances({
-  wallets,
-}: {
-  wallets: DashboardData["wallets"];
-}) {
+function WalletBalances({ wallets }: { wallets: DashboardData["wallets"] }) {
   if (wallets.length === 0) {
     return <EmptyState text="No wallets yet." />;
   }
@@ -525,19 +531,15 @@ function WalletBalances({
   );
 }
 
-function BudgetProgress({
-  budget,
-}: {
-  budget: DashboardData["budget"];
-}) {
+function BudgetProgress({ budget }: { budget: DashboardData["budget"] }) {
   const usage = budget.usedPercentage;
 
   if (budget.totalBudget <= 0) {
     return (
       <div>
         <p className="text-sm leading-6 text-zinc-500">
-          No budget has been set for this month. Add one to track
-          monthly spending pressure.
+          No budget has been set for this month. Add one to track monthly
+          spending pressure.
         </p>
         <Link
           href="/budgets"
@@ -568,8 +570,9 @@ function BudgetProgress({
         />
       </div>
       <p className="mt-4 text-sm leading-6 text-zinc-500">
-        {formatRupiah(budget.spent)} used from {formatRupiah(budget.totalBudget)}.
-        Remaining budget: {formatRupiah(budget.remaining)}.
+        {formatRupiah(budget.spent)} used from{" "}
+        {formatRupiah(budget.totalBudget)}. Remaining budget:{" "}
+        {formatRupiah(budget.remaining)}.
       </p>
       <div className="mt-4 space-y-2">
         {budget.items.map((item) => (

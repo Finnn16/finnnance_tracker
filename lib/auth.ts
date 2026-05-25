@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { UserRole } from "@/lib/generated/prisma/enums";
-import { WalletType } from "@/lib/generated/prisma/enums";
+import { UserRole, WalletType } from "@/lib/prisma-enums";
 import { env } from "@/lib/env";
 
 export interface AuthValidationResult {

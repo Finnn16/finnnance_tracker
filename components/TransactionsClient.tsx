@@ -2,7 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 
-import { TransactionType } from "@/lib/generated/prisma/enums";
+import { TransactionType } from "@/lib/prisma-enums";
 import { formatRupiah } from "@/lib/money";
 import {
   getTransactionTypeLabel,

@@ -1,4 +1,4 @@
-import { TransactionType } from "@/lib/generated/prisma/enums";
+import { TransactionType } from "@/lib/prisma-enums";
 import { parseIntegerAmount } from "@/lib/money";
 
 export const transactionTypeOptions: Array<{

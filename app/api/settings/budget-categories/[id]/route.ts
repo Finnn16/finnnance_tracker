@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { validateBudgetCategoryPayload } from "@/lib/budget-categories";
-import { UserRole } from "@/lib/generated/prisma/enums";
+import { UserRole } from "@/lib/prisma-enums";
 import { prisma } from "@/lib/prisma";
 import { getUnlockedAppUserForRequest } from "@/lib/secure-api-user";
 

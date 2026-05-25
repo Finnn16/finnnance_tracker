@@ -1,4 +1,4 @@
-import { TransactionType } from "@/lib/generated/prisma/enums";
+import { TransactionType } from "@/lib/prisma-enums";
 
 type WalletBalanceClient = {
   wallet: {

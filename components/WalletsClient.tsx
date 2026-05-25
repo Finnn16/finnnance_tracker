@@ -2,7 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 
-import { WalletType } from "@/lib/generated/prisma/enums";
+import { WalletType } from "@/lib/prisma-enums";
 import { formatRupiah } from "@/lib/money";
 import { getWalletTypeLabel, walletTypeOptions } from "@/lib/wallets";
 
