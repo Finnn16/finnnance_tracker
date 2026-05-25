@@ -43,9 +43,7 @@ export default async function BudgetsPage() {
               <Link href="/" className="text-sm font-medium text-indigo-700">
                 Back
               </Link>
-              <h1 className="mt-1 text-2xl font-bold text-zinc-950">
-                Budgets
-              </h1>
+              <h1 className="mt-1 text-2xl font-bold text-zinc-950">Budgets</h1>
             </div>
 
             <div className="flex items-center gap-4">
@@ -74,16 +72,18 @@ export default async function BudgetsPage() {
               month: budget.month.toISOString(),
               amount: budget.amount,
             }))}
-            initialBudgetCategories={budgetCategories.map((category: (typeof budgetCategories)[number]) => ({
-              id: category.id,
-              userId: category.userId,
-              userName: category.user.name,
-              userEmail: category.user.email,
-              name: category.name,
-              isHidden: category.isHidden,
-              budgetCount: category._count.budgets,
-              transactionCount: category._count.transactions,
-            }))}
+            initialBudgetCategories={budgetCategories.map(
+              (category: (typeof budgetCategories)[number]) => ({
+                id: category.id,
+                userId: category.userId,
+                userName: category.user.name,
+                userEmail: category.user.email,
+                name: category.name,
+                isHidden: category.isHidden,
+                budgetCount: category._count.budgets,
+                transactionCount: category._count.transactions,
+              }),
+            )}
             users={users}
             currentUserId={user.id}
             currentUserRole={user.role}

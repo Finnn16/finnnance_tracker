@@ -25,7 +25,8 @@ export const TransactionType = {
   TRANSFER: "TRANSFER",
 } as const;
 
-export type TransactionType = (typeof TransactionType)[keyof typeof TransactionType];
+export type TransactionType =
+  (typeof TransactionType)[keyof typeof TransactionType];
 
 export const TransactionSource = {
   WEB: "WEB",
@@ -33,7 +34,8 @@ export const TransactionSource = {
   SYSTEM: "SYSTEM",
 } as const;
 
-export type TransactionSource = (typeof TransactionSource)[keyof typeof TransactionSource];
+export type TransactionSource =
+  (typeof TransactionSource)[keyof typeof TransactionSource];
 
 export const TransactionConfirmationStatus = {
   PENDING: "PENDING",
@@ -42,4 +44,5 @@ export const TransactionConfirmationStatus = {
   FAILED: "FAILED",
 } as const;
 
-export type TransactionConfirmationStatus = (typeof TransactionConfirmationStatus)[keyof typeof TransactionConfirmationStatus];
+export type TransactionConfirmationStatus =
+  (typeof TransactionConfirmationStatus)[keyof typeof TransactionConfirmationStatus];

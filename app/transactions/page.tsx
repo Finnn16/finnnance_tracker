@@ -41,25 +41,27 @@ export default async function TransactionsPage() {
       }),
     ]);
 
-  const transactionViews = transactions.map((transaction: (typeof transactions)[number]) => ({
-    id: transaction.id,
-    userId: transaction.userId,
-    userName: transaction.user.name,
-    userEmail: transaction.user.email,
-    walletId: transaction.walletId,
-    walletName: transaction.wallet.name,
-    transferToWalletId: transaction.transferToWalletId,
-    transferToWalletName: transaction.transferToWallet?.name || null,
-    categoryId: transaction.categoryId,
-    categoryName: transaction.category?.name || null,
-    budgetCategoryId: transaction.budgetCategoryId,
-    budgetCategoryName: transaction.budgetCategory?.name || null,
-    type: transaction.type,
-    amount: transaction.amount,
-    description: transaction.description,
-    transactionDate: transaction.transactionDate.toISOString(),
-    canManage: user.role === UserRole.ADMIN || user.id === transaction.userId,
-  }));
+  const transactionViews = transactions.map(
+    (transaction: (typeof transactions)[number]) => ({
+      id: transaction.id,
+      userId: transaction.userId,
+      userName: transaction.user.name,
+      userEmail: transaction.user.email,
+      walletId: transaction.walletId,
+      walletName: transaction.wallet.name,
+      transferToWalletId: transaction.transferToWalletId,
+      transferToWalletName: transaction.transferToWallet?.name || null,
+      categoryId: transaction.categoryId,
+      categoryName: transaction.category?.name || null,
+      budgetCategoryId: transaction.budgetCategoryId,
+      budgetCategoryName: transaction.budgetCategory?.name || null,
+      type: transaction.type,
+      amount: transaction.amount,
+      description: transaction.description,
+      transactionDate: transaction.transactionDate.toISOString(),
+      canManage: user.role === UserRole.ADMIN || user.id === transaction.userId,
+    }),
+  );
 
   return (
     <div className="min-h-screen bg-zinc-100">

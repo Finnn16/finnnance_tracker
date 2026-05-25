@@ -189,38 +189,38 @@ export async function PATCH(request: NextRequest) {
 
   const updated = await prisma.$transaction(
     async (tx: Prisma.TransactionClient) => {
-    await tx.category.updateMany({
-      where: { type, group: name, isSelectable: true },
-      data: { group: newName },
-    });
-
-    const anchor = await tx.category.findFirst({
-      where: {
-        type,
-        group: name,
-        isSelectable: false,
-        level: -1,
-      },
-      select: { id: true },
-    });
-
-    if (anchor) {
-      await tx.category.update({
-        where: { id: anchor.id },
-        data: {
-          key: createCategoryGroupKey(newName, type),
-          name: newName,
-          group: newName,
-        },
+      await tx.category.updateMany({
+        where: { type, group: name, isSelectable: true },
+        data: { group: newName },
       });
-    }
 
-    return {
-      group: {
-        type,
-        name: newName,
-      },
-    };
+      const anchor = await tx.category.findFirst({
+        where: {
+          type,
+          group: name,
+          isSelectable: false,
+          level: -1,
+        },
+        select: { id: true },
+      });
+
+      if (anchor) {
+        await tx.category.update({
+          where: { id: anchor.id },
+          data: {
+            key: createCategoryGroupKey(newName, type),
+            name: newName,
+            group: newName,
+          },
+        });
+      }
+
+      return {
+        group: {
+          type,
+          name: newName,
+        },
+      };
     },
   );
 

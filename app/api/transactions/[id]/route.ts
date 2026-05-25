@@ -196,32 +196,32 @@ export async function PATCH(
 
   const updatedTransaction = await prisma.$transaction(
     async (tx: Prisma.TransactionClient) => {
-    await applyTransactionBalanceEffect(tx, existingTransaction, -1);
+      await applyTransactionBalanceEffect(tx, existingTransaction, -1);
 
-    const updated = await tx.transaction.update({
-      where: { id },
-      data: {
-        walletId: result.data.walletId,
-        transferToWalletId: result.data.transferToWalletId,
-        categoryId: result.data.categoryId,
-        budgetCategoryId: result.data.budgetCategoryId,
-        type: result.data.type,
-        amount: result.data.amount,
-        description: result.data.description,
-        transactionDate: result.data.transactionDate,
-      },
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-        wallet: { select: { id: true, name: true } },
-        transferToWallet: { select: { id: true, name: true } },
-        category: { select: { id: true, name: true } },
-        budgetCategory: { select: { id: true, name: true } },
-      },
-    });
+      const updated = await tx.transaction.update({
+        where: { id },
+        data: {
+          walletId: result.data.walletId,
+          transferToWalletId: result.data.transferToWalletId,
+          categoryId: result.data.categoryId,
+          budgetCategoryId: result.data.budgetCategoryId,
+          type: result.data.type,
+          amount: result.data.amount,
+          description: result.data.description,
+          transactionDate: result.data.transactionDate,
+        },
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+          wallet: { select: { id: true, name: true } },
+          transferToWallet: { select: { id: true, name: true } },
+          category: { select: { id: true, name: true } },
+          budgetCategory: { select: { id: true, name: true } },
+        },
+      });
 
-    await applyTransactionBalanceEffect(tx, result.data, 1);
+      await applyTransactionBalanceEffect(tx, result.data, 1);
 
-    return updated;
+      return updated;
     },
   );
 

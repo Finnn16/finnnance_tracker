@@ -72,32 +72,38 @@ export default async function SettingsPage() {
 
         <main className="mx-auto min-h-0 w-full max-w-6xl flex-1 overflow-hidden px-4 py-5 sm:px-6 lg:px-8">
           <SettingsClient
-            initialCategories={categories.map((category: (typeof categories)[number]) => ({
-              id: category.id,
-              name: category.name,
-              type: category.type,
-              group: category.group,
-              isHidden: category.isHidden,
-              isFallback: category.isFallback,
-              transactionCount: category._count.transactions,
-            }))}
-            initialCategoryGroups={categoryGroups.map((group: (typeof categoryGroups)[number]) => ({
-              id: group.id,
-              name: group.name,
-              type: group.type,
-              group: group.group,
-            }))}
+            initialCategories={categories.map(
+              (category: (typeof categories)[number]) => ({
+                id: category.id,
+                name: category.name,
+                type: category.type,
+                group: category.group,
+                isHidden: category.isHidden,
+                isFallback: category.isFallback,
+                transactionCount: category._count.transactions,
+              }),
+            )}
+            initialCategoryGroups={categoryGroups.map(
+              (group: (typeof categoryGroups)[number]) => ({
+                id: group.id,
+                name: group.name,
+                type: group.type,
+                group: group.group,
+              }),
+            )}
             initialBudgets={[]}
-            initialBudgetCategories={budgetCategories.map((category: (typeof budgetCategories)[number]) => ({
-              id: category.id,
-              userId: category.userId,
-              userName: category.user.name,
-              userEmail: category.user.email,
-              name: category.name,
-              isHidden: category.isHidden,
-              budgetCount: category._count.budgets,
-              transactionCount: category._count.transactions,
-            }))}
+            initialBudgetCategories={budgetCategories.map(
+              (category: (typeof budgetCategories)[number]) => ({
+                id: category.id,
+                userId: category.userId,
+                userName: category.user.name,
+                userEmail: category.user.email,
+                name: category.name,
+                isHidden: category.isHidden,
+                budgetCount: category._count.budgets,
+                transactionCount: category._count.transactions,
+              }),
+            )}
             users={users}
             currentUserId={user.id}
             currentUserRole={user.role}

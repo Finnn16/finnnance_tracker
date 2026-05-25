@@ -211,75 +211,76 @@ export async function POST(request: NextRequest) {
 
   const createdTransactions = await prisma.$transaction(
     async (tx: Prisma.TransactionClient) => {
-    const createdTransfer = await tx.transaction.create({
-      data: {
-        userId: auth.user.id,
-        walletId: result.data.walletId,
-        transferToWalletId: result.data.transferToWalletId,
-        categoryId: result.data.categoryId,
-        budgetCategoryId: result.data.budgetCategoryId,
-        type: result.data.type,
-        amount: result.data.amount,
-        description: result.data.description,
-        transactionDate: result.data.transactionDate,
-      },
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-        wallet: { select: { id: true, name: true } },
-        transferToWallet: { select: { id: true, name: true } },
-        category: { select: { id: true, name: true } },
-        budgetCategory: { select: { id: true, name: true } },
-      },
-    });
+      const createdTransfer = await tx.transaction.create({
+        data: {
+          userId: auth.user.id,
+          walletId: result.data.walletId,
+          transferToWalletId: result.data.transferToWalletId,
+          categoryId: result.data.categoryId,
+          budgetCategoryId: result.data.budgetCategoryId,
+          type: result.data.type,
+          amount: result.data.amount,
+          description: result.data.description,
+          transactionDate: result.data.transactionDate,
+        },
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+          wallet: { select: { id: true, name: true } },
+          transferToWallet: { select: { id: true, name: true } },
+          category: { select: { id: true, name: true } },
+          budgetCategory: { select: { id: true, name: true } },
+        },
+      });
 
-    await applyTransactionBalanceEffect(tx, result.data, 1);
+      await applyTransactionBalanceEffect(tx, result.data, 1);
 
-    if (!result.data.transferFeeEnabled || !result.data.transferFeeAmount) {
-      return [createdTransfer];
-    }
+      if (!result.data.transferFeeEnabled || !result.data.transferFeeAmount) {
+        return [createdTransfer];
+      }
 
-    const createdFee = await tx.transaction.create({
-      data: {
-        userId: auth.user.id,
-        walletId: result.data.walletId,
-        transferToWalletId: null,
-        categoryId: adminFeeCategoryId!,
-        budgetCategoryId: null,
-        type: TransactionType.EXPENSE,
-        amount: result.data.transferFeeAmount,
-        description: "Biaya Admin",
-        source: TransactionSource.SYSTEM,
-        rawMessage: `transfer_fee:${createdTransfer.id}`,
-        transactionDate: result.data.transactionDate,
-      },
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-        wallet: { select: { id: true, name: true } },
-        transferToWallet: { select: { id: true, name: true } },
-        category: { select: { id: true, name: true } },
-        budgetCategory: { select: { id: true, name: true } },
-      },
-    });
+      const createdFee = await tx.transaction.create({
+        data: {
+          userId: auth.user.id,
+          walletId: result.data.walletId,
+          transferToWalletId: null,
+          categoryId: adminFeeCategoryId!,
+          budgetCategoryId: null,
+          type: TransactionType.EXPENSE,
+          amount: result.data.transferFeeAmount,
+          description: "Biaya Admin",
+          source: TransactionSource.SYSTEM,
+          rawMessage: `transfer_fee:${createdTransfer.id}`,
+          transactionDate: result.data.transactionDate,
+        },
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+          wallet: { select: { id: true, name: true } },
+          transferToWallet: { select: { id: true, name: true } },
+          category: { select: { id: true, name: true } },
+          budgetCategory: { select: { id: true, name: true } },
+        },
+      });
 
-    await applyTransactionBalanceEffect(
-      tx,
-      {
-        type: TransactionType.EXPENSE,
-        amount: result.data.transferFeeAmount,
-        walletId: result.data.walletId,
-        transferToWalletId: null,
-      },
-      1,
-    );
+      await applyTransactionBalanceEffect(
+        tx,
+        {
+          type: TransactionType.EXPENSE,
+          amount: result.data.transferFeeAmount,
+          walletId: result.data.walletId,
+          transferToWalletId: null,
+        },
+        1,
+      );
 
-    return [createdTransfer, createdFee];
+      return [createdTransfer, createdFee];
     },
   );
 
   return NextResponse.json(
     {
-      transactions: createdTransactions.map((transaction: TransactionWithRelations) =>
-        toTransactionView(transaction, auth.user.id, auth.user.role),
+      transactions: createdTransactions.map(
+        (transaction: TransactionWithRelations) =>
+          toTransactionView(transaction, auth.user.id, auth.user.role),
       ),
     },
     { status: 201 },
