@@ -21,7 +21,7 @@ const walletTypeMap = {
 };
 
 const pool = new Pool({
-  connectionString: process.env.DIRECT_URL || process.env.DATABASE_URL,
+  connectionString: process.env.DATABASE_URL || process.env.DIRECT_URL,
 });
 
 function requiredEnv(name) {
