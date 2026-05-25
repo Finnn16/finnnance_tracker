@@ -1,0 +1,189 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum WalletType {
+  CASH
+  BANK
+  EWALLET
+  DIGITAL_BANK
+  CREDIT_CARD
+  PAYLATER
+  INVESTMENT
+  ASSET
+  OTHER
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  TRANSFER
+}
+
+enum TransactionSource {
+  WEB
+  WHATSAPP
+  SYSTEM
+}
+
+enum TransactionConfirmationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  FAILED
+}
+
+model User {
+  id                String    @id @default(cuid())
+  clerkUserId       String?   @unique @map("clerk_user_id")
+  email             String    @unique
+  name              String
+  role              UserRole  @default(USER)
+  pinHash           String?   @map("pin_hash")
+  pinSetAt          DateTime? @map("pin_set_at")
+  pinFailedAttempts Int       @default(0) @map("pin_failed_attempts")
+  pinLockedUntil    DateTime? @map("pin_locked_until")
+
+  wallets      Wallet[]
+  transactions Transaction[]
+  budgets      Budget[]
+  budgetCategories BudgetCategory[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model Wallet {
+  id             String     @id @default(cuid())
+  userId         String     @map("user_id")
+  key            String
+  name           String
+  type           WalletType @default(OTHER)
+  initialBalance Int        @default(0) @map("initial_balance")
+  currentBalance Int        @default(0) @map("current_balance")
+  isDefault      Boolean    @default(false) @map("is_default")
+
+  user                 User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions         Transaction[] @relation("TransactionWallet")
+  transferTransactions Transaction[] @relation("TransactionTransferWallet")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, key])
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("wallets")
+}
+
+model Category {
+  id           String          @id @default(cuid())
+  parentId     String?         @map("parent_id")
+  key          String
+  name         String
+  group        String
+  type         TransactionType
+  level        Int             @default(0)
+  isSelectable Boolean         @default(true) @map("is_selectable")
+  isFallback   Boolean         @default(false) @map("is_fallback")
+  isHidden     Boolean         @default(false) @map("is_hidden")
+
+  parent       Category?       @relation("CategoryTree", fields: [parentId], references: [id])
+  children     Category[]      @relation("CategoryTree")
+  transactions Transaction[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([key, type])
+  @@index([parentId])
+  @@index([type, group])
+  @@map("categories")
+}
+
+model Budget {
+  id               String   @id @default(cuid())
+  userId           String   @map("user_id")
+  legacyCategoryId String?  @map("category_id")
+  budgetCategoryId String?  @map("budget_category_id")
+  month            DateTime
+  amount           Int
+
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  budgetCategory BudgetCategory? @relation(fields: [budgetCategoryId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, month, budgetCategoryId])
+  @@index([month])
+  @@index([budgetCategoryId])
+  @@map("budgets")
+}
+
+model BudgetCategory {
+  id       String @id @default(cuid())
+  userId   String @map("user_id")
+  name     String
+  sortOrder Int   @default(0) @map("sort_order")
+  isHidden Boolean @default(false) @map("is_hidden")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  budgets      Budget[]
+  transactions Transaction[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, name])
+  @@index([userId, isHidden])
+  @@map("budget_categories")
+}
+
+model Transaction {
+  id                 String                        @id @default(cuid())
+  userId             String                        @map("user_id")
+  walletId           String                        @map("wallet_id")
+  transferToWalletId String?                       @map("transfer_to_wallet_id")
+  categoryId         String?                       @map("category_id")
+  budgetCategoryId   String?                       @map("budget_category_id")
+  type               TransactionType
+  amount             Int
+  description        String
+  source             TransactionSource             @default(WEB)
+  rawMessage         String?                       @map("raw_message")
+  confirmationStatus TransactionConfirmationStatus @default(CONFIRMED) @map("confirmation_status")
+  transactionDate    DateTime                      @default(now()) @map("transaction_date")
+
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet           Wallet    @relation("TransactionWallet", fields: [walletId], references: [id])
+  transferToWallet Wallet?   @relation("TransactionTransferWallet", fields: [transferToWalletId], references: [id])
+  category         Category? @relation(fields: [categoryId], references: [id])
+  budgetCategory   BudgetCategory? @relation(fields: [budgetCategoryId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, transactionDate])
+  @@index([walletId])
+  @@index([categoryId])
+  @@index([budgetCategoryId])
+  @@map("transactions")
+}

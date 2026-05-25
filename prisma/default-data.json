@@ -1,0 +1,762 @@
+{
+  "defaultWalletKey": "bca",
+  "accountTypes": [
+    "cash",
+    "e_wallet",
+    "bank",
+    "digital_bank",
+    "credit_card",
+    "paylater",
+    "investment",
+    "asset"
+  ],
+  "transactionTypes": ["expense", "income", "transfer"],
+  "expenseCategoryGroups": [
+    {
+      "key": "needs",
+      "name": "Kebutuhan Pokok",
+      "type": "expense",
+      "children": [
+        {
+          "key": "food",
+          "name": "Makan & Minum",
+          "children": [
+            { "key": "daily_meals", "name": "Makan Harian" },
+            { "key": "restaurant", "name": "Restoran" },
+            { "key": "coffee", "name": "Kopi / Cafe" },
+            { "key": "food_delivery", "name": "GoFood / GrabFood / ShopeeFood" },
+            { "key": "snacks", "name": "Camilan" },
+            { "key": "drinks", "name": "Minuman" }
+          ]
+        },
+        {
+          "key": "groceries",
+          "name": "Belanja Bulanan",
+          "children": [
+            { "key": "supermarket", "name": "Supermarket" },
+            { "key": "traditional_market", "name": "Pasar" },
+            { "key": "minimarket", "name": "Minimarket" },
+            { "key": "basic_food", "name": "Beras / Telur / Minyak / Bumbu" },
+            { "key": "frozen_food", "name": "Frozen Food" },
+            { "key": "household_supplies", "name": "Sabun / Tisu / Perlengkapan Rumah" }
+          ]
+        },
+        {
+          "key": "housing",
+          "name": "Tempat Tinggal",
+          "children": [
+            { "key": "rent", "name": "Sewa / Kontrakan" },
+            { "key": "mortgage", "name": "KPR" },
+            { "key": "boarding_house", "name": "Kos" },
+            { "key": "service_charge", "name": "Iuran Apartemen / Service Charge" },
+            { "key": "security_fee", "name": "Iuran Keamanan / RT" },
+            { "key": "home_maintenance", "name": "Perbaikan Rumah" },
+            { "key": "home_furniture", "name": "Furniture" },
+            { "key": "home_appliances", "name": "Peralatan Rumah" }
+          ]
+        },
+        {
+          "key": "utilities",
+          "name": "Tagihan Utilitas",
+          "children": [
+            { "key": "electricity", "name": "Listrik" },
+            { "key": "water", "name": "Air" },
+            { "key": "gas", "name": "Gas" },
+            { "key": "internet_home", "name": "Internet Rumah" },
+            { "key": "mobile_data", "name": "Pulsa / Paket Data" },
+            { "key": "phone_bill", "name": "Tagihan Telepon" }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "transportation",
+      "name": "Transportasi",
+      "type": "expense",
+      "children": [
+        {
+          "key": "public_transport",
+          "name": "Transportasi Umum",
+          "children": [
+            { "key": "bus", "name": "Bus / TransJakarta" },
+            { "key": "train", "name": "KRL / MRT / LRT" },
+            { "key": "intercity_transport", "name": "Kereta / Bus Antar Kota" },
+            { "key": "airport_transport", "name": "Transport Bandara" }
+          ]
+        },
+        {
+          "key": "ride_hailing",
+          "name": "Ojek / Taxi Online",
+          "children": [
+            { "key": "gojek", "name": "Gojek" },
+            { "key": "grab", "name": "Grab" },
+            { "key": "taxi", "name": "Taxi" }
+          ]
+        },
+        {
+          "key": "private_vehicle",
+          "name": "Kendaraan Pribadi",
+          "children": [
+            { "key": "fuel", "name": "Bensin / BBM" },
+            { "key": "parking", "name": "Parkir" },
+            { "key": "toll", "name": "Tol" },
+            { "key": "vehicle_service", "name": "Servis Kendaraan" },
+            { "key": "vehicle_wash", "name": "Cuci Kendaraan" },
+            { "key": "vehicle_tax", "name": "Pajak Kendaraan" },
+            { "key": "vehicle_insurance", "name": "Asuransi Kendaraan" },
+            { "key": "vehicle_installment", "name": "Cicilan Kendaraan" }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "financial",
+      "name": "Keuangan",
+      "type": "expense",
+      "children": [
+        {
+          "key": "debt",
+          "name": "Utang & Cicilan",
+          "children": [
+            { "key": "loan_payment", "name": "Bayar Pinjaman" },
+            { "key": "credit_card_payment", "name": "Bayar Kartu Kredit" },
+            { "key": "paylater_payment", "name": "Bayar PayLater" },
+            { "key": "personal_debt_payment", "name": "Bayar Utang Pribadi" },
+            { "key": "interest_fee", "name": "Bunga / Denda" }
+          ]
+        },
+        {
+          "key": "banking_fees",
+          "name": "Biaya Bank & Admin",
+          "children": [
+            { "key": "admin_fee", "name": "Biaya Admin" },
+            { "key": "transfer_fee", "name": "Biaya Transfer" },
+            { "key": "topup_fee", "name": "Biaya Top Up" },
+            { "key": "withdrawal_fee", "name": "Biaya Tarik Tunai" },
+            { "key": "late_fee", "name": "Denda Keterlambatan" }
+          ]
+        },
+        {
+          "key": "tax",
+          "name": "Pajak",
+          "children": [
+            { "key": "income_tax", "name": "Pajak Penghasilan" },
+            { "key": "property_tax", "name": "PBB" },
+            { "key": "vehicle_tax_expense", "name": "Pajak Kendaraan" },
+            { "key": "other_tax", "name": "Pajak Lainnya" }
+          ]
+        },
+        {
+          "key": "saving_investment",
+          "name": "Tabungan & Investasi",
+          "children": [
+            { "key": "savings_deposit", "name": "Setoran Tabungan" },
+            { "key": "emergency_fund_deposit", "name": "Setoran Dana Darurat" },
+            { "key": "investment_deposit", "name": "Top Up Investasi" },
+            { "key": "pension_deposit", "name": "Dana Pensiun" }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "health_family",
+      "name": "Kesehatan & Keluarga",
+      "type": "expense",
+      "children": [
+        {
+          "key": "healthcare",
+          "name": "Kesehatan",
+          "children": [
+            { "key": "doctor", "name": "Dokter" },
+            { "key": "hospital", "name": "Rumah Sakit" },
+            { "key": "medicine", "name": "Obat" },
+            { "key": "lab_check", "name": "Lab / Medical Checkup" },
+            { "key": "dental", "name": "Dokter Gigi" },
+            { "key": "therapy", "name": "Terapi" },
+            { "key": "mental_health", "name": "Kesehatan Mental" }
+          ]
+        },
+        {
+          "key": "insurance",
+          "name": "Asuransi",
+          "children": [
+            { "key": "health_insurance", "name": "Asuransi Kesehatan" },
+            { "key": "life_insurance", "name": "Asuransi Jiwa" },
+            { "key": "vehicle_insurance_expense", "name": "Asuransi Kendaraan" },
+            { "key": "property_insurance", "name": "Asuransi Properti" }
+          ]
+        },
+        {
+          "key": "family",
+          "name": "Keluarga",
+          "children": [
+            { "key": "parents_support", "name": "Orang Tua" },
+            { "key": "child_needs", "name": "Kebutuhan Anak" },
+            { "key": "childcare", "name": "Daycare / Pengasuh" },
+            { "key": "family_event", "name": "Acara Keluarga" },
+            { "key": "family_support", "name": "Bantuan Keluarga" }
+          ]
+        },
+        {
+          "key": "pets",
+          "name": "Hewan Peliharaan",
+          "children": [
+            { "key": "pet_food", "name": "Makanan Hewan" },
+            { "key": "pet_grooming", "name": "Grooming" },
+            { "key": "pet_vet", "name": "Dokter Hewan" },
+            { "key": "pet_supplies", "name": "Perlengkapan Hewan" }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "education_self_development",
+      "name": "Pendidikan & Pengembangan Diri",
+      "type": "expense",
+      "children": [
+        {
+          "key": "formal_education",
+          "name": "Pendidikan Formal",
+          "children": [
+            { "key": "school_fee", "name": "Uang Sekolah / Kuliah" },
+            { "key": "registration_fee", "name": "Biaya Pendaftaran" },
+            { "key": "books", "name": "Buku Pelajaran" },
+            { "key": "school_supplies", "name": "Perlengkapan Sekolah" },
+            { "key": "uniform", "name": "Seragam" }
+          ]
+        },
+        {
+          "key": "courses",
+          "name": "Kursus & Skill",
+          "children": [
+            { "key": "online_course", "name": "Online Course" },
+            { "key": "offline_course", "name": "Kursus Offline" },
+            { "key": "certification", "name": "Sertifikasi" },
+            { "key": "workshop", "name": "Workshop / Seminar" },
+            { "key": "language_course", "name": "Kursus Bahasa" }
+          ]
+        },
+        {
+          "key": "self_development",
+          "name": "Pengembangan Diri",
+          "children": [
+            { "key": "books_self_dev", "name": "Buku" },
+            { "key": "mentoring", "name": "Mentoring / Coaching" },
+            { "key": "community_membership", "name": "Komunitas / Membership" }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "lifestyle",
+      "name": "Lifestyle",
+      "type": "expense",
+      "children": [
+        {
+          "key": "shopping",
+          "name": "Belanja Pribadi",
+          "children": [
+            { "key": "clothing", "name": "Pakaian" },
+            { "key": "shoes", "name": "Sepatu / Sandal" },
+            { "key": "bags_accessories", "name": "Tas / Aksesoris" },
+            { "key": "electronics", "name": "Elektronik" },
+            { "key": "gadgets", "name": "Gadget" },
+            { "key": "marketplace_shopping", "name": "Belanja Marketplace" }
+          ]
+        },
+        {
+          "key": "beauty_personal_care",
+          "name": "Beauty & Personal Care",
+          "children": [
+            { "key": "skincare", "name": "Skincare" },
+            { "key": "makeup", "name": "Makeup" },
+            { "key": "salon", "name": "Salon / Barbershop" },
+            { "key": "spa_massage", "name": "Spa / Massage" },
+            { "key": "personal_care", "name": "Personal Care" }
+          ]
+        },
+        {
+          "key": "entertainment",
+          "name": "Hiburan",
+          "children": [
+            { "key": "movies", "name": "Bioskop" },
+            { "key": "concert", "name": "Konser / Event" },
+            { "key": "games", "name": "Game" },
+            { "key": "karaoke", "name": "Karaoke" },
+            { "key": "recreation", "name": "Rekreasi" }
+          ]
+        },
+        {
+          "key": "hobby",
+          "name": "Hobi",
+          "children": [
+            { "key": "sports_hobby", "name": "Olahraga" },
+            { "key": "photography", "name": "Fotografi" },
+            { "key": "music", "name": "Musik" },
+            { "key": "collectibles", "name": "Koleksi" },
+            { "key": "crafting", "name": "Kerajinan" }
+          ]
+        },
+        {
+          "key": "subscriptions",
+          "name": "Subscription",
+          "children": [
+            { "key": "streaming_video", "name": "Netflix / Disney+ / Video" },
+            { "key": "streaming_music", "name": "Spotify / Music" },
+            { "key": "cloud_storage", "name": "Cloud Storage" },
+            { "key": "software_subscription", "name": "Software / SaaS" },
+            { "key": "news_subscription", "name": "News / Media" },
+            { "key": "membership_subscription", "name": "Membership" }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "travel",
+      "name": "Travel & Liburan",
+      "type": "expense",
+      "children": [
+        {
+          "key": "transport_travel",
+          "name": "Transport Travel",
+          "children": [
+            { "key": "flight", "name": "Pesawat" },
+            { "key": "train_travel", "name": "Kereta" },
+            { "key": "bus_travel", "name": "Bus / Travel" },
+            { "key": "car_rental", "name": "Sewa Mobil" },
+            { "key": "local_transport_travel", "name": "Transport Lokal" }
+          ]
+        },
+        {
+          "key": "accommodation",
+          "name": "Akomodasi",
+          "children": [
+            { "key": "hotel", "name": "Hotel" },
+            { "key": "villa", "name": "Villa" },
+            { "key": "hostel", "name": "Hostel" },
+            { "key": "airbnb", "name": "Airbnb / Homestay" }
+          ]
+        },
+        {
+          "key": "travel_activities",
+          "name": "Aktivitas Travel",
+          "children": [
+            { "key": "tour_ticket", "name": "Tiket Wisata" },
+            { "key": "tour_package", "name": "Paket Tour" },
+            { "key": "travel_food", "name": "Makan saat Travel" },
+            { "key": "souvenir", "name": "Oleh-oleh" },
+            { "key": "travel_insurance", "name": "Asuransi Travel" },
+            { "key": "visa_passport", "name": "Visa / Paspor" }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "social_giving",
+      "name": "Sosial & Donasi",
+      "type": "expense",
+      "children": [
+        {
+          "key": "religious_giving",
+          "name": "Keagamaan",
+          "children": [
+            { "key": "zakat", "name": "Zakat" },
+            { "key": "infaq", "name": "Infaq" },
+            { "key": "sedekah", "name": "Sedekah" },
+            { "key": "church_offering", "name": "Persembahan" }
+          ]
+        },
+        {
+          "key": "donation",
+          "name": "Donasi",
+          "children": [
+            { "key": "charity", "name": "Charity" },
+            { "key": "disaster_donation", "name": "Bantuan Bencana" },
+            { "key": "community_donation", "name": "Donasi Komunitas" }
+          ]
+        },
+        {
+          "key": "gifts",
+          "name": "Hadiah",
+          "children": [
+            { "key": "birthday_gift", "name": "Hadiah Ulang Tahun" },
+            { "key": "wedding_gift", "name": "Hadiah Pernikahan" },
+            { "key": "baby_gift", "name": "Hadiah Kelahiran" },
+            { "key": "holiday_gift", "name": "Hadiah Hari Raya" },
+            { "key": "souvenir_gift", "name": "Souvenir / Hampers" }
+          ]
+        },
+        {
+          "key": "social_events",
+          "name": "Acara Sosial",
+          "children": [
+            { "key": "hangout", "name": "Hangout" },
+            { "key": "treat_friends", "name": "Traktir Teman" },
+            { "key": "community_event", "name": "Acara Komunitas" }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "business_work",
+      "name": "Bisnis & Pekerjaan",
+      "type": "expense",
+      "children": [
+        {
+          "key": "work_expense",
+          "name": "Pengeluaran Kerja",
+          "children": [
+            { "key": "work_meal", "name": "Makan Kerja" },
+            { "key": "work_transport", "name": "Transport Kerja" },
+            { "key": "work_tools", "name": "Peralatan Kerja" },
+            { "key": "work_software", "name": "Software Kerja" },
+            { "key": "coworking_space", "name": "Coworking Space" }
+          ]
+        },
+        {
+          "key": "business_operational",
+          "name": "Operasional Bisnis",
+          "children": [
+            { "key": "inventory", "name": "Stok Barang" },
+            { "key": "packaging", "name": "Packaging" },
+            { "key": "shipping_business", "name": "Ongkir Bisnis" },
+            { "key": "ads_marketing", "name": "Iklan / Marketing" },
+            { "key": "platform_fee", "name": "Biaya Platform" },
+            { "key": "business_tools", "name": "Tools Bisnis" }
+          ]
+        },
+        {
+          "key": "reimbursable",
+          "name": "Reimbursable",
+          "children": [
+            { "key": "office_reimbursement", "name": "Talangan Kantor" },
+            { "key": "client_reimbursement", "name": "Talangan Client" },
+            { "key": "travel_reimbursement", "name": "Talangan Perjalanan Dinas" }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "miscellaneous",
+      "name": "Lainnya",
+      "type": "expense",
+      "children": [
+        {
+          "key": "cash_movement",
+          "name": "Pergerakan Cash",
+          "children": [
+            { "key": "cash_withdrawal", "name": "Tarik Tunai" },
+            { "key": "cash_deposit", "name": "Setor Tunai" },
+            { "key": "transfer_out", "name": "Transfer Keluar" }
+          ]
+        },
+        {
+          "key": "adjustment",
+          "name": "Penyesuaian",
+          "children": [
+            { "key": "balance_correction_minus", "name": "Koreksi Saldo Minus" },
+            { "key": "lost_money", "name": "Uang Hilang" },
+            { "key": "rounding_difference", "name": "Selisih Pembulatan" }
+          ]
+        },
+        {
+          "key": "uncategorized",
+          "name": "Tidak Dikategorikan",
+          "children": [
+            { "key": "uncategorized_expense", "name": "Pengeluaran Lainnya" }
+          ]
+        }
+      ]
+    }
+  ],
+  "incomeCategoryGroups": [
+    {
+      "key": "main_income",
+      "name": "Penghasilan Utama",
+      "type": "income",
+      "children": [
+        {
+          "key": "salary",
+          "name": "Gaji",
+          "children": [
+            { "key": "monthly_salary", "name": "Gaji Bulanan" },
+            { "key": "weekly_salary", "name": "Gaji Mingguan" },
+            { "key": "thirteenth_salary", "name": "Gaji ke-13" },
+            { "key": "thr", "name": "THR" }
+          ]
+        },
+        {
+          "key": "work_bonus",
+          "name": "Bonus & Tunjangan",
+          "children": [
+            { "key": "bonus", "name": "Bonus" },
+            { "key": "performance_bonus", "name": "Bonus Performa" },
+            { "key": "overtime", "name": "Lembur" },
+            { "key": "allowance", "name": "Tunjangan" },
+            { "key": "transport_allowance", "name": "Tunjangan Transport" },
+            { "key": "meal_allowance", "name": "Tunjangan Makan" }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "business_income_group",
+      "name": "Bisnis & Freelance",
+      "type": "income",
+      "children": [
+        {
+          "key": "freelance",
+          "name": "Freelance",
+          "children": [
+            { "key": "freelance_project", "name": "Project Freelance" },
+            { "key": "consulting_income", "name": "Konsultasi" },
+            { "key": "design_income", "name": "Design" },
+            { "key": "development_income", "name": "Development" },
+            { "key": "writing_income", "name": "Writing / Content" }
+          ]
+        },
+        {
+          "key": "business_income",
+          "name": "Pendapatan Bisnis",
+          "children": [
+            { "key": "product_sales", "name": "Penjualan Produk" },
+            { "key": "service_sales", "name": "Penjualan Jasa" },
+            { "key": "online_store_income", "name": "Toko Online" },
+            { "key": "offline_store_income", "name": "Toko Offline" },
+            { "key": "commission_income", "name": "Komisi" },
+            { "key": "affiliate_income", "name": "Affiliate" }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "investment_passive_income",
+      "name": "Investasi & Passive Income",
+      "type": "income",
+      "children": [
+        {
+          "key": "investment_income",
+          "name": "Hasil Investasi",
+          "children": [
+            { "key": "dividend", "name": "Dividen" },
+            { "key": "interest", "name": "Bunga Bank" },
+            { "key": "deposit_interest", "name": "Bunga Deposito" },
+            { "key": "bond_coupon", "name": "Kupon Obligasi / SBN" },
+            { "key": "mutual_fund_gain", "name": "Keuntungan Reksadana" },
+            { "key": "stock_gain", "name": "Keuntungan Saham" },
+            { "key": "crypto_gain", "name": "Keuntungan Crypto" },
+            { "key": "gold_gain", "name": "Keuntungan Emas" }
+          ]
+        },
+        {
+          "key": "passive_income",
+          "name": "Passive Income",
+          "children": [
+            { "key": "rental_income", "name": "Pendapatan Sewa" },
+            { "key": "royalty", "name": "Royalti" },
+            { "key": "ad_revenue", "name": "Ads Revenue" },
+            { "key": "creator_income", "name": "Creator Income" }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "refund_rewards",
+      "name": "Refund, Cashback & Reward",
+      "type": "income",
+      "children": [
+        {
+          "key": "refund",
+          "name": "Refund",
+          "children": [
+            { "key": "purchase_refund", "name": "Refund Belanja" },
+            { "key": "travel_refund", "name": "Refund Travel" },
+            { "key": "subscription_refund", "name": "Refund Subscription" },
+            { "key": "deposit_refund", "name": "Pengembalian Deposit" }
+          ]
+        },
+        {
+          "key": "rewards",
+          "name": "Reward",
+          "children": [
+            { "key": "cashback", "name": "Cashback" },
+            { "key": "voucher", "name": "Voucher" },
+            { "key": "points_redeemed", "name": "Penukaran Poin" },
+            { "key": "bank_reward", "name": "Reward Bank" }
+          ]
+        },
+        {
+          "key": "reimbursement",
+          "name": "Reimbursement",
+          "children": [
+            { "key": "office_reimbursement_income", "name": "Reimbursement Kantor" },
+            { "key": "client_reimbursement_income", "name": "Reimbursement Client" },
+            { "key": "medical_reimbursement", "name": "Reimbursement Kesehatan" },
+            { "key": "travel_reimbursement_income", "name": "Reimbursement Perjalanan" }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "other_income",
+      "name": "Pemasukan Lainnya",
+      "type": "income",
+      "children": [
+        {
+          "key": "personal_income",
+          "name": "Personal",
+          "children": [
+            { "key": "gift_income", "name": "Hadiah" },
+            { "key": "family_support_income", "name": "Bantuan Keluarga" },
+            { "key": "selling_used_items", "name": "Jual Barang Bekas" },
+            { "key": "prize", "name": "Hadiah / Prize" }
+          ]
+        },
+        {
+          "key": "loan_income",
+          "name": "Pinjaman & Transfer",
+          "children": [
+            { "key": "loan_received", "name": "Pinjaman Diterima" },
+            { "key": "debt_repayment_received", "name": "Pengembalian Utang" },
+            { "key": "transfer_in", "name": "Transfer Masuk" }
+          ]
+        },
+        {
+          "key": "income_adjustment",
+          "name": "Penyesuaian",
+          "children": [
+            { "key": "balance_correction_plus", "name": "Koreksi Saldo Plus" },
+            { "key": "rounding_income", "name": "Selisih Pembulatan" },
+            { "key": "uncategorized_income", "name": "Pemasukan Lainnya" }
+          ]
+        }
+      ]
+    }
+  ],
+  "wallets": [
+    { "key": "cash", "name": "Tunai / Cash", "type": "cash" },
+    { "key": "petty_cash", "name": "Uang Kecil", "type": "cash" },
+    { "key": "cash_envelope", "name": "Amplop Cash", "type": "cash" },
+    { "key": "gopay", "name": "GoPay", "type": "e_wallet" },
+    { "key": "ovo", "name": "OVO", "type": "e_wallet" },
+    { "key": "dana", "name": "DANA", "type": "e_wallet" },
+    { "key": "shopeepay", "name": "ShopeePay", "type": "e_wallet" },
+    { "key": "linkaja", "name": "LinkAja", "type": "e_wallet" },
+    { "key": "isaku", "name": "i.Saku", "type": "e_wallet" },
+    { "key": "sakuku", "name": "Sakuku", "type": "e_wallet" },
+    { "key": "grabpay", "name": "GrabPay / OVO untuk Grab", "type": "e_wallet" },
+    { "key": "qris_balance", "name": "Saldo QRIS / Merchant Wallet", "type": "e_wallet" },
+    { "key": "bca", "name": "BCA", "type": "bank" },
+    { "key": "mandiri", "name": "Bank Mandiri / Livin'", "type": "bank" },
+    { "key": "bri", "name": "BRI / BRImo", "type": "bank" },
+    { "key": "bni", "name": "BNI / wondr by BNI", "type": "bank" },
+    { "key": "cimb", "name": "CIMB Niaga / OCTO", "type": "bank" },
+    { "key": "permata", "name": "PermataBank", "type": "bank" },
+    { "key": "danamon", "name": "Danamon", "type": "bank" },
+    { "key": "panin", "name": "Panin Bank", "type": "bank" },
+    { "key": "ocbc", "name": "OCBC", "type": "bank" },
+    { "key": "maybank", "name": "Maybank", "type": "bank" },
+    { "key": "btn", "name": "BTN", "type": "bank" },
+    { "key": "bsi", "name": "Bank Syariah Indonesia", "type": "bank" },
+    { "key": "muamalat", "name": "Bank Muamalat", "type": "bank" },
+    { "key": "jago", "name": "Bank Jago", "type": "digital_bank" },
+    { "key": "jenius", "name": "Jenius by BTPN", "type": "digital_bank" },
+    { "key": "blu", "name": "blu by BCA Digital", "type": "digital_bank" },
+    { "key": "seabank", "name": "SeaBank", "type": "digital_bank" },
+    { "key": "neobank", "name": "Bank Neo Commerce / NeoBank", "type": "digital_bank" },
+    { "key": "allo", "name": "Allo Bank", "type": "digital_bank" },
+    { "key": "line_bank", "name": "LINE Bank", "type": "digital_bank" },
+    { "key": "superbank", "name": "Superbank", "type": "digital_bank" },
+    { "key": "motion_bank", "name": "MotionBank", "type": "digital_bank" },
+    { "key": "digibank", "name": "digibank by DBS", "type": "digital_bank" },
+    { "key": "tmrw", "name": "TMRW by UOB", "type": "digital_bank" },
+    { "key": "credit_card", "name": "Kartu Kredit", "type": "credit_card" },
+    { "key": "bca_cc", "name": "Kartu Kredit BCA", "type": "credit_card" },
+    { "key": "mandiri_cc", "name": "Kartu Kredit Mandiri", "type": "credit_card" },
+    { "key": "bri_cc", "name": "Kartu Kredit BRI", "type": "credit_card" },
+    { "key": "bni_cc", "name": "Kartu Kredit BNI", "type": "credit_card" },
+    { "key": "cimb_cc", "name": "Kartu Kredit CIMB Niaga", "type": "credit_card" },
+    { "key": "shopee_paylater", "name": "Shopee PayLater", "type": "paylater" },
+    { "key": "gopay_later", "name": "GoPayLater", "type": "paylater" },
+    { "key": "kredivo", "name": "Kredivo", "type": "paylater" },
+    { "key": "akulaku", "name": "Akulaku", "type": "paylater" },
+    { "key": "traveloka_paylater", "name": "Traveloka PayLater", "type": "paylater" },
+    { "key": "saham", "name": "Saham", "type": "investment" },
+    { "key": "reksadana", "name": "Reksadana", "type": "investment" },
+    { "key": "obligasi", "name": "Obligasi / SBN", "type": "investment" },
+    { "key": "emas", "name": "Emas", "type": "investment" },
+    { "key": "crypto", "name": "Crypto", "type": "investment" },
+    { "key": "deposito", "name": "Deposito", "type": "investment" },
+    { "key": "dana_darurat", "name": "Dana Darurat", "type": "asset" },
+    { "key": "dana_pensiun", "name": "Dana Pensiun", "type": "asset" }
+  ],
+  "expenseCategories": [
+    { "key": "groceries", "name": "Belanja Bulanan / Groceries", "group": "kebutuhan_pokok" },
+    { "key": "food", "name": "Makan & Minum", "group": "kebutuhan_pokok" },
+    { "key": "household", "name": "Perlengkapan Rumah", "group": "kebutuhan_pokok" },
+    { "key": "utilities", "name": "Listrik, Air, Gas", "group": "kebutuhan_pokok" },
+    { "key": "internet", "name": "Internet & Pulsa", "group": "kebutuhan_pokok" },
+    { "key": "rent", "name": "Sewa / Kontrakan", "group": "kebutuhan_pokok" },
+    { "key": "mortgage", "name": "Cicilan Rumah / KPR", "group": "kebutuhan_pokok" },
+    { "key": "maintenance", "name": "Perawatan Rumah", "group": "kebutuhan_pokok" },
+    { "key": "transport", "name": "Transportasi Umum", "group": "transportasi" },
+    { "key": "fuel", "name": "Bensin / BBM", "group": "transportasi" },
+    { "key": "parking", "name": "Parkir", "group": "transportasi" },
+    { "key": "toll", "name": "Tol", "group": "transportasi" },
+    { "key": "ride_hailing", "name": "Gojek / Grab / Taxi", "group": "transportasi" },
+    { "key": "vehicle_maintenance", "name": "Servis Kendaraan", "group": "transportasi" },
+    { "key": "vehicle_installment", "name": "Cicilan Kendaraan", "group": "transportasi" },
+    { "key": "entertainment", "name": "Hiburan", "group": "lifestyle" },
+    { "key": "shopping", "name": "Belanja Pribadi", "group": "lifestyle" },
+    { "key": "fashion", "name": "Pakaian & Fashion", "group": "lifestyle" },
+    { "key": "beauty", "name": "Skincare / Salon", "group": "lifestyle" },
+    { "key": "hobby", "name": "Hobi", "group": "lifestyle" },
+    { "key": "subscription", "name": "Subscription", "group": "lifestyle" },
+    { "key": "travel", "name": "Liburan / Travel", "group": "lifestyle" },
+    { "key": "gifts", "name": "Hadiah", "group": "lifestyle" },
+    { "key": "healthcare", "name": "Kesehatan", "group": "kesehatan_keluarga" },
+    { "key": "medicine", "name": "Obat", "group": "kesehatan_keluarga" },
+    { "key": "insurance", "name": "Asuransi", "group": "kesehatan_keluarga" },
+    { "key": "education", "name": "Pendidikan", "group": "kesehatan_keluarga" },
+    { "key": "child", "name": "Anak", "group": "kesehatan_keluarga" },
+    { "key": "parents", "name": "Orang Tua / Keluarga", "group": "kesehatan_keluarga" },
+    { "key": "pets", "name": "Hewan Peliharaan", "group": "kesehatan_keluarga" },
+    { "key": "debt_payment", "name": "Bayar Utang", "group": "keuangan" },
+    { "key": "loan_installment", "name": "Cicilan Pinjaman", "group": "keuangan" },
+    { "key": "credit_card_payment", "name": "Bayar Kartu Kredit", "group": "keuangan" },
+    { "key": "admin_fee", "name": "Biaya Admin", "group": "keuangan" },
+    { "key": "tax", "name": "Pajak", "group": "keuangan" },
+    { "key": "zakat_donation", "name": "Zakat / Donasi", "group": "keuangan" },
+    { "key": "investment_expense", "name": "Top Up Investasi", "group": "keuangan" },
+    { "key": "savings", "name": "Tabungan", "group": "keuangan" },
+    { "key": "emergency_fund", "name": "Dana Darurat", "group": "keuangan" },
+    { "key": "transfer_out", "name": "Transfer Keluar", "group": "lainnya" },
+    { "key": "cash_withdrawal", "name": "Tarik Tunai", "group": "lainnya" },
+    { "key": "adjustment_minus", "name": "Koreksi Saldo Minus", "group": "lainnya" },
+    { "key": "uncategorized_expense", "name": "Pengeluaran Lainnya", "group": "lainnya" }
+  ],
+  "incomeCategories": [
+    { "key": "salary", "name": "Gaji", "group": "penghasilan_utama" },
+    { "key": "freelance", "name": "Freelance", "group": "penghasilan_utama" },
+    { "key": "business_income", "name": "Pendapatan Bisnis", "group": "penghasilan_utama" },
+    { "key": "commission", "name": "Komisi", "group": "penghasilan_utama" },
+    { "key": "bonus", "name": "Bonus", "group": "penghasilan_utama" },
+    { "key": "overtime", "name": "Lembur", "group": "penghasilan_utama" },
+    { "key": "allowance", "name": "Tunjangan", "group": "penghasilan_utama" },
+    { "key": "interest", "name": "Bunga Bank", "group": "penghasilan_pasif_investasi" },
+    { "key": "dividend", "name": "Dividen", "group": "penghasilan_pasif_investasi" },
+    { "key": "investment_gain", "name": "Keuntungan Investasi", "group": "penghasilan_pasif_investasi" },
+    { "key": "capital_gain", "name": "Capital Gain", "group": "penghasilan_pasif_investasi" },
+    { "key": "rental_income", "name": "Pendapatan Sewa", "group": "penghasilan_pasif_investasi" },
+    { "key": "royalty", "name": "Royalti", "group": "penghasilan_pasif_investasi" },
+    { "key": "gift_income", "name": "Hadiah", "group": "lainnya" },
+    { "key": "cashback", "name": "Cashback", "group": "lainnya" },
+    { "key": "refund", "name": "Refund / Pengembalian Dana", "group": "lainnya" },
+    { "key": "reimbursement", "name": "Reimbursement", "group": "lainnya" },
+    { "key": "selling_income", "name": "Jual Barang", "group": "lainnya" },
+    { "key": "loan_received", "name": "Pinjaman Diterima", "group": "lainnya" },
+    { "key": "transfer_in", "name": "Transfer Masuk", "group": "lainnya" },
+    { "key": "adjustment_plus", "name": "Koreksi Saldo Plus", "group": "lainnya" },
+    { "key": "uncategorized_income", "name": "Pemasukan Lainnya", "group": "lainnya" }
+  ]
+}
