@@ -1,9 +1,6 @@
 import { z } from "zod";
 
-const emailSchema = z
-  .string()
-  .email("Invalid email format")
-  .toLowerCase();
+const emailSchema = z.string().email("Invalid email format").toLowerCase();
 
 const emailAllowlistSchema = z
   .string()
@@ -13,11 +10,7 @@ const emailAllowlistSchema = z
       .map((email) => email.trim().toLowerCase())
       .filter(Boolean),
   )
-  .pipe(
-    z
-      .array(emailSchema)
-      .min(1, "At least one allowed email is required"),
-  );
+  .pipe(z.array(emailSchema).min(1, "At least one allowed email is required"));
 
 const envSchema = z.object({
   DATABASE_URL: z
@@ -31,6 +24,7 @@ const envSchema = z.object({
   ALLOWED_EMAILS: emailAllowlistSchema,
   ADMIN_EMAIL: emailSchema,
   USER_EMAIL: emailSchema,
+  OPENROUTER_API_KEY: z.string().min(1),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
@@ -49,4 +43,5 @@ export const env = {
   allowedEmails: parsedEnv.data.ALLOWED_EMAILS,
   adminEmail: parsedEnv.data.ADMIN_EMAIL,
   userEmail: parsedEnv.data.USER_EMAIL,
+  openrouterApiKey: parsedEnv.data.OPENROUTER_API_KEY,
 };

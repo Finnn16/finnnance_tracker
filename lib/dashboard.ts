@@ -51,6 +51,20 @@ type DashboardBudgetRow = {
   } | null;
 };
 
+type BudgetStatus = "SAFE" | "OVERPLANNED";
+type BudgetItemStatus = "SAFE" | "WARNING" | "DANGER" | "OVERBUDGET";
+
+type DashboardBudgetItem = {
+  id: string;
+  userName: string;
+  categoryName: string;
+  amount: number;
+  spent: number;
+  remaining: number;
+  progress: number;
+  status: BudgetItemStatus;
+};
+
 type DashboardTransactionRow = {
   id: string;
   type: TransactionType;
@@ -163,6 +177,12 @@ export async function getDashboardData() {
     (total, budget) => total + budget.amount,
     0,
   );
+  const availableToBudget = totalBalance;
+  const budgetedAmount = totalBudget;
+  const unallocatedAmount = Math.max(availableToBudget - budgetedAmount, 0);
+  const overplannedAmount = Math.max(budgetedAmount - availableToBudget, 0);
+  const budgetStatus: BudgetStatus =
+    overplannedAmount > 0 ? "OVERPLANNED" : "SAFE";
   const budgetSpent = new Map<string, number>();
 
   for (const transaction of monthTransactions) {
@@ -283,17 +303,22 @@ export async function getDashboardData() {
       transactionCount: monthTransactions.length,
     },
     budget: {
+      availableToBudget,
+      budgetedAmount,
+      unallocatedAmount,
+      overplannedAmount,
+      status: budgetStatus,
       totalBudget,
       spent: assignedBudgetExpense,
       usedPercentage:
-        totalBudget > 0
+        budgetedAmount > 0
           ? Math.min(
               100,
-              Math.round((assignedBudgetExpense / totalBudget) * 100),
+              Math.round((assignedBudgetExpense / budgetedAmount) * 100),
             )
           : 0,
-      remaining: totalBudget - assignedBudgetExpense,
-      items: budgets.map((budget) => ({
+      remaining: budgetedAmount - assignedBudgetExpense,
+      items: budgets.map<DashboardBudgetItem>((budget) => ({
         id: budget.id,
         userName: budget.user.name,
         categoryName: budget.budgetCategory?.name ?? "Unassigned",
@@ -301,6 +326,45 @@ export async function getDashboardData() {
         spent: budget.budgetCategoryId
           ? budgetSpent.get(budget.budgetCategoryId) || 0
           : 0,
+        remaining:
+          budget.amount -
+          (budget.budgetCategoryId
+            ? budgetSpent.get(budget.budgetCategoryId) || 0
+            : 0),
+        progress:
+          budget.amount > 0
+            ? Math.min(
+                100,
+                Math.round(
+                  (((budget.budgetCategoryId
+                    ? budgetSpent.get(budget.budgetCategoryId) || 0
+                    : 0) as number) /
+                    budget.amount) *
+                    100,
+                ),
+              )
+            : 0,
+        status: (() => {
+          const spent = budget.budgetCategoryId
+            ? budgetSpent.get(budget.budgetCategoryId) || 0
+            : 0;
+          const progress =
+            budget.amount > 0 ? (spent / budget.amount) * 100 : 0;
+
+          if (progress > 100) {
+            return "OVERBUDGET" as BudgetItemStatus;
+          }
+
+          if (progress >= 90) {
+            return "DANGER" as BudgetItemStatus;
+          }
+
+          if (progress >= 70) {
+            return "WARNING" as BudgetItemStatus;
+          }
+
+          return "SAFE" as BudgetItemStatus;
+        })(),
       })),
     },
     cashflow: chartDays.map((day) => ({

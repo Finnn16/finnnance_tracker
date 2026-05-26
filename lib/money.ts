@@ -6,6 +6,22 @@ export function formatRupiah(amount: number) {
   }).format(amount);
 }
 
+export function formatAmountInput(value: string | number) {
+  const digits = String(value).replace(/[^\d]/g, "");
+
+  if (!digits) {
+    return "";
+  }
+
+  return `Rp ${Number(digits).toLocaleString("id-ID")}`;
+}
+
+export function normalizeAmountInput(value: string) {
+  const digits = value.replace(/[^\d]/g, "");
+
+  return digits ? formatAmountInput(digits) : "";
+}
+
 export function parseIntegerAmount(value: unknown) {
   if (typeof value === "number" && Number.isInteger(value)) {
     return value;

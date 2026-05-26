@@ -2,7 +2,7 @@
 
 import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { AppLockButton } from "@/components/AppLockButton";
 import { DashboardData } from "@/lib/dashboard";
@@ -20,7 +20,7 @@ type DashboardWidget = {
   id: string;
   title: string;
   type:
-    | "chart"
+    | "summary"
     | "top_categories"
     | "wallet_balances"
     | "budget_progress"
@@ -45,9 +45,17 @@ type BudgetItemView = {
   categoryName: string;
   amount: number;
   spent: number;
+  remaining: number;
+  progress: number;
+  status: "SAFE" | "WARNING" | "DANGER" | "OVERBUDGET";
 };
 
 type BudgetView = {
+  availableToBudget: number;
+  budgetedAmount: number;
+  unallocatedAmount: number;
+  overplannedAmount: number;
+  status: "SAFE" | "OVERPLANNED";
   totalBudget: number;
   spent: number;
   usedPercentage: number;
@@ -68,11 +76,41 @@ type RecentTransactionView = {
   transactionDate: string;
 };
 
+type DashboardAiInsight = DashboardData["aiInsight"];
+
+type AiInsightRequest = {
+  periodLabel: string;
+  summary: {
+    income: number;
+    expense: number;
+    totalBalance: number;
+    netCashflow: number;
+    transactionCount: number;
+  };
+  budget: {
+    availableToBudget: number;
+    budgetedAmount: number;
+    unallocatedAmount: number;
+    overplannedAmount: number;
+    status: DashboardData["budget"]["status"];
+    usedPercentage: number;
+  };
+  topCategories: DashboardData["topCategories"];
+  recentTransactions: Array<{
+    type: TransactionType;
+    amount: number;
+    description: string;
+    categoryName: string | null;
+    budgetCategoryName: string | null;
+    walletName: string;
+  }>;
+};
+
 const defaultWidgets: DashboardWidget[] = [
   {
-    id: "cashflow",
-    title: "Cashflow Trend",
-    type: "chart",
+    id: "monthly_snapshot",
+    title: "Monthly Snapshot",
+    type: "summary",
     visible: true,
     order: 1,
     size: "large",
@@ -163,6 +201,87 @@ export function DashboardView({
 }) {
   const [widgets, setWidgets] = useState(getInitialWidgets);
   const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
+  const [aiInsight, setAiInsight] = useState<DashboardAiInsight>(
+    data.aiInsight,
+  );
+  const [aiInsightLoading, setAiInsightLoading] = useState(true);
+  const [aiInsightError, setAiInsightError] = useState<string | null>(null);
+
+  const aiInsightRequest = useMemo<AiInsightRequest>(
+    () => ({
+      periodLabel: data.periodLabel,
+      summary: data.summary,
+      budget: {
+        availableToBudget: data.budget.availableToBudget,
+        budgetedAmount: data.budget.budgetedAmount,
+        unallocatedAmount: data.budget.unallocatedAmount,
+        overplannedAmount: data.budget.overplannedAmount,
+        status: data.budget.status,
+        usedPercentage: data.budget.usedPercentage,
+      },
+      topCategories: data.topCategories.slice(0, 5),
+      recentTransactions: data.recentTransactions.slice(0, 5).map((item) => ({
+        type: item.type,
+        amount: item.amount,
+        description: item.description,
+        categoryName: item.categoryName,
+        budgetCategoryName: item.budgetCategoryName,
+        walletName: item.walletName,
+      })),
+    }),
+    [data],
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadAiInsight() {
+      setAiInsightLoading(true);
+      setAiInsightError(null);
+
+      try {
+        const response = await fetch("/api/ai/insight", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(aiInsightRequest),
+          signal: controller.signal,
+          cache: "no-store",
+        });
+
+        const result = (await response.json()) as {
+          insight?: DashboardAiInsight;
+          error?: string;
+          warning?: string;
+        };
+
+        if (!response.ok || !result.insight) {
+          throw new Error(result.error || "Failed to load AI insight.");
+        }
+
+        setAiInsight(result.insight);
+        setAiInsightError(result.warning || null);
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setAiInsightError(
+          error instanceof Error ? error.message : "Failed to load AI insight.",
+        );
+        setAiInsight(data.aiInsight);
+      } finally {
+        if (!controller.signal.aborted) {
+          setAiInsightLoading(false);
+        }
+      }
+    }
+
+    loadAiInsight();
+
+    return () => {
+      controller.abort();
+    };
+  }, [aiInsightRequest, data.aiInsight]);
 
   const visibleWidgets = useMemo(
     () =>
@@ -216,31 +335,19 @@ export function DashboardView({
         </header>
 
         <main className="mx-auto max-w-7xl px-4 pb-24 pt-5 sm:px-6 lg:px-8">
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <SummaryMetricCard
-              label="Total Saldo"
-              value={formatRupiah(data.summary.totalBalance)}
-              detail={`${data.wallets.length} wallet aktif`}
-              tone="blue"
-            />
-            <SummaryMetricCard
-              label="Income"
-              value={formatRupiah(data.summary.income)}
-              detail="Bulan ini"
-              tone="green"
-            />
-            <SummaryMetricCard
-              label="Expense"
-              value={formatRupiah(data.summary.expense)}
-              detail="Bulan ini"
-              tone="red"
-            />
-            <SummaryMetricCard
-              label="Net Cashflow"
-              value={formatRupiah(data.summary.netCashflow)}
-              detail={`${data.summary.transactionCount} transaksi`}
-              tone={data.summary.netCashflow >= 0 ? "green" : "red"}
-            />
+          <section className="mt-5">
+            {visibleWidgets
+              .filter((widget) => widget.type === "summary")
+              .map((widget) => (
+                <WidgetSlot
+                  key={widget.id}
+                  widget={widget}
+                  data={data}
+                  aiInsight={aiInsight}
+                  aiInsightLoading={aiInsightLoading}
+                  aiInsightError={aiInsightError}
+                />
+              ))}
           </section>
 
           <section className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -249,10 +356,18 @@ export function DashboardView({
                 .filter(
                   (widget) =>
                     widget.type !== "recent_transactions" &&
-                    widget.type !== "ai_insight",
+                    widget.type !== "ai_insight" &&
+                    widget.type !== "summary",
                 )
                 .map((widget) => (
-                  <WidgetSlot key={widget.id} widget={widget} data={data} />
+                  <WidgetSlot
+                    key={widget.id}
+                    widget={widget}
+                    data={data}
+                    aiInsight={aiInsight}
+                    aiInsightLoading={aiInsightLoading}
+                    aiInsightError={aiInsightError}
+                  />
                 ))}
             </div>
 
@@ -264,7 +379,14 @@ export function DashboardView({
                     widget.type === "ai_insight",
                 )
                 .map((widget) => (
-                  <WidgetSlot key={widget.id} widget={widget} data={data} />
+                  <WidgetSlot
+                    key={widget.id}
+                    widget={widget}
+                    data={data}
+                    aiInsight={aiInsight}
+                    aiInsightLoading={aiInsightLoading}
+                    aiInsightError={aiInsightError}
+                  />
                 ))}
             </aside>
           </section>
@@ -341,60 +463,32 @@ function MobileNav() {
   );
 }
 
-function SummaryMetricCard({
-  label,
-  value,
-  detail,
-  tone,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  tone: "blue" | "green" | "red";
-}) {
-  const toneClass =
-    tone === "blue"
-      ? "bg-blue-50 text-blue-700"
-      : tone === "green"
-        ? "bg-emerald-50 text-emerald-700"
-        : "bg-red-50 text-red-700";
-
-  return (
-    <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-zinc-500">{label}</p>
-          <p className="mt-3 text-2xl font-bold tracking-normal text-zinc-950">
-            {value}
-          </p>
-        </div>
-        <span
-          className={`rounded-lg px-2 py-1 text-xs font-semibold ${toneClass}`}
-        >
-          {detail}
-        </span>
-      </div>
-    </article>
-  );
-}
-
 function WidgetSlot({
   widget,
   data,
+  aiInsight,
+  aiInsightLoading,
+  aiInsightError,
 }: {
   widget: DashboardWidget;
   data: DashboardData;
+  aiInsight: DashboardAiInsight;
+  aiInsightLoading: boolean;
+  aiInsightError: string | null;
 }) {
   const className =
     widget.size === "large"
-      ? "lg:col-span-2 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
+      ? "w-full rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
       : "rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm";
 
-  if (widget.type === "chart") {
+  if (widget.type === "summary") {
     return (
       <section className={className}>
-        <WidgetHeader title="Cashflow Trend" subtitle="Last 7 days" />
-        <CashflowChart data={data.cashflow} />
+        <WidgetHeader
+          title="Monthly Snapshot"
+          subtitle="Salary-first overview"
+        />
+        <MonthlySnapshot data={data} />
       </section>
     );
   }
@@ -437,8 +531,12 @@ function WidgetSlot({
 
   return (
     <section className={className}>
-      <WidgetHeader title="AI Insight" subtitle="Smart summary" />
-      <AIInsight insight={data.aiInsight} />
+      <WidgetHeader title="AI Insight" subtitle="OpenRouter-powered summary" />
+      <AIInsight
+        insight={aiInsight}
+        isLoading={aiInsightLoading}
+        error={aiInsightError}
+      />
     </section>
   );
 }
@@ -461,48 +559,151 @@ function WidgetHeader({
   );
 }
 
-function CashflowChart({ data }: { data: DashboardData["cashflow"] }) {
-  const maxValue = Math.max(
-    1,
-    ...data.flatMap((day) => [day.income, day.expense]),
-  );
+function SummaryMetricCard({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone: "blue" | "green" | "red";
+}) {
+  const toneClass =
+    tone === "blue"
+      ? "bg-blue-50 text-blue-700"
+      : tone === "green"
+        ? "bg-emerald-50 text-emerald-700"
+        : "bg-red-50 text-red-700";
 
   return (
-    <div className="h-72">
-      <div className="flex h-60 items-end gap-3 border-b border-zinc-200">
-        {data.map((day) => (
-          <div key={day.label} className="flex flex-1 flex-col items-center">
-            <div className="flex h-52 w-full items-end justify-center gap-1">
-              <div
-                className="w-3 rounded-t bg-blue-500"
-                style={{
-                  height: `${Math.max(6, (day.income / maxValue) * 100)}%`,
-                }}
-              />
-              <div
-                className="w-3 rounded-t bg-red-300"
-                style={{
-                  height: `${Math.max(6, (day.expense / maxValue) * 100)}%`,
-                }}
-              />
-            </div>
-            <p className="mt-3 text-xs font-medium text-zinc-500">
-              {day.label}
+    <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-zinc-500">{label}</p>
+          <p className="mt-3 text-2xl font-bold tracking-normal text-zinc-950">
+            {value}
+          </p>
+        </div>
+        <span
+          className={`rounded-lg px-2 py-1 text-xs font-semibold ${toneClass}`}
+        >
+          {detail}
+        </span>
+      </div>
+    </article>
+  );
+}
+
+function MonthlySnapshot({ data }: { data: DashboardData }) {
+  const isHealthy = data.summary.netCashflow >= 0;
+  const budgetTone = data.budget.overplannedAmount > 0 ? "red" : "green";
+
+  const metrics = [
+    {
+      label: "Income",
+      value: formatRupiah(data.summary.income),
+      detail: "Bulan ini",
+      tone: "green" as const,
+    },
+    {
+      label: "Expense",
+      value: formatRupiah(data.summary.expense),
+      detail: "Bulan ini",
+      tone: "red" as const,
+    },
+    {
+      label: "Total Saldo",
+      value: formatRupiah(data.summary.totalBalance),
+      detail: `${data.wallets.length} wallet aktif`,
+      tone: "blue" as const,
+    },
+    {
+      label: "Budget Used",
+      value: `${data.budget.usedPercentage}%`,
+      detail: "Budget bulan ini",
+      tone: isHealthy ? ("green" as const) : ("red" as const),
+    },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-zinc-500">
+              Net cashflow bulan ini
+            </p>
+            <p
+              className={`mt-2 text-3xl font-bold tracking-tight ${
+                isHealthy ? "text-emerald-700" : "text-red-600"
+              }`}
+            >
+              {formatRupiah(data.summary.netCashflow)}
             </p>
           </div>
+          <span
+            className={`rounded-lg px-3 py-1 text-xs font-semibold ${
+              isHealthy
+                ? "bg-emerald-100 text-emerald-700"
+                : "bg-red-100 text-red-700"
+            }`}
+          >
+            {isHealthy ? "Surplus" : "Deficit"}
+          </span>
+        </div>
+        <p className="mt-3 text-sm leading-6 text-zinc-600">
+          {isHealthy
+            ? "Income bulan ini masih menutup pengeluaran, jadi lebih mudah untuk menjaga budget tetap aman."
+            : "Pengeluaran bulan ini melewati income. Periksa transaksi besar dan budget yang paling cepat habis."}
+        </p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        {metrics.map((metric) => (
+          <SummaryMetricCard
+            key={metric.label}
+            label={metric.label}
+            value={metric.value}
+            detail={metric.detail}
+            tone={metric.tone}
+          />
         ))}
       </div>
 
-      <div className="mt-4 flex gap-4 text-xs text-zinc-500">
-        <span className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-blue-500" />
-          Income
-        </span>
-        <span className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-red-300" />
-          Expense
-        </span>
+      <div className="rounded-xl border border-zinc-200 bg-white p-4">
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="font-medium text-zinc-700">Budget status</span>
+          <span
+            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+              budgetTone === "green"
+                ? "bg-emerald-100 text-emerald-700"
+                : "bg-red-100 text-red-700"
+            }`}
+          >
+            {data.budget.status === "OVERPLANNED" ? "Overplanned" : "Safe"}
+          </span>
+        </div>
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-100">
+          <div
+            className={`h-full rounded-full ${
+              budgetTone === "green" ? "bg-emerald-500" : "bg-red-500"
+            }`}
+            style={{ width: `${Math.min(100, data.budget.usedPercentage)}%` }}
+          />
+        </div>
+        <div className="mt-3 grid gap-2 text-xs text-zinc-500 sm:grid-cols-3">
+          <span>{formatRupiah(data.budget.availableToBudget)} available</span>
+          <span>{formatRupiah(data.budget.budgetedAmount)} budgeted</span>
+          <span>{formatRupiah(data.budget.unallocatedAmount)} unallocated</span>
+        </div>
       </div>
+
+      <p className="text-xs text-zinc-500">
+        {data.summary.transactionCount} transaksi bulan ini •{" "}
+        {data.wallets.length} wallet aktif
+      </p>
     </div>
   );
 }
@@ -570,6 +771,10 @@ function WalletBalances({ wallets }: { wallets: WalletBalanceView[] }) {
 
 function BudgetProgress({ budget }: { budget: BudgetView }) {
   const usage = budget.usedPercentage;
+  const statusTone =
+    budget.status === "OVERPLANNED"
+      ? "border-red-200 bg-red-50 text-red-700"
+      : "border-emerald-200 bg-emerald-50 text-emerald-700";
 
   if (budget.totalBudget <= 0) {
     return (
@@ -589,12 +794,21 @@ function BudgetProgress({ budget }: { budget: BudgetView }) {
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between text-sm">
-        <span className="font-medium text-zinc-700">Spending usage</span>
-        <span className="font-semibold text-zinc-950">{usage}%</span>
+    <div className="rounded-2xl border border-zinc-100 bg-zinc-50/70 p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-zinc-950">Budget usage</p>
+          <p className="mt-1 text-xs text-zinc-500">
+            Overall spending against the budget you planned this month.
+          </p>
+        </div>
+        <div
+          className={`rounded-full border px-2.5 py-1 text-sm font-semibold ${statusTone}`}
+        >
+          {budget.status}
+        </div>
       </div>
-      <div className="mt-3 h-3 overflow-hidden rounded-full bg-zinc-100">
+      <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-white ring-1 ring-zinc-200">
         <div
           className={
             usage >= 90
@@ -606,28 +820,80 @@ function BudgetProgress({ budget }: { budget: BudgetView }) {
           style={{ width: `${usage}%` }}
         />
       </div>
-      <p className="mt-4 text-sm leading-6 text-zinc-500">
-        {formatRupiah(budget.spent)} used from{" "}
-        {formatRupiah(budget.totalBudget)}. Remaining budget:{" "}
-        {formatRupiah(budget.remaining)}.
-      </p>
-      <div className="mt-4 space-y-2">
+      <div className="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 sm:text-sm">
+        <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
+          <p className="text-zinc-500">Available</p>
+          <p className="mt-1 font-semibold text-zinc-950">
+            {formatRupiah(budget.availableToBudget)}
+          </p>
+        </div>
+        <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
+          <p className="text-zinc-500">Budgeted</p>
+          <p className="mt-1 font-semibold text-zinc-950">
+            {formatRupiah(budget.budgetedAmount)}
+          </p>
+        </div>
+        <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
+          <p className="text-zinc-500">Unallocated</p>
+          <p className="mt-1 font-semibold text-zinc-950">
+            {formatRupiah(budget.unallocatedAmount)}
+          </p>
+        </div>
+        <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
+          <p className="text-zinc-500">Overplanned</p>
+          <p className="mt-1 font-semibold text-zinc-950">
+            {formatRupiah(budget.overplannedAmount)}
+          </p>
+        </div>
+      </div>
+      <div className="mt-4 max-h-72 space-y-3 overflow-auto pr-1">
         {budget.items.map((item: BudgetItemView) => (
           <div
             key={item.id}
-            className="rounded-lg bg-zinc-50 px-3 py-3 text-sm text-zinc-600"
+            className="rounded-xl bg-white px-3 py-3 text-sm ring-1 ring-zinc-200"
           >
-            <div className="flex items-center justify-between gap-3">
-              <span className="font-medium text-zinc-700">
-                {item.categoryName}
-              </span>
-              <span className="font-semibold text-zinc-950">
-                {formatRupiah(item.amount)}
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate font-medium text-zinc-950">
+                  {item.categoryName}
+                </p>
+                <p className="mt-1 text-xs text-zinc-500">{item.userName}</p>
+              </div>
+              <div className="text-right">
+                <p className="font-semibold text-zinc-950">
+                  {formatRupiah(item.amount)}
+                </p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  {item.remaining >= 0
+                    ? `${formatRupiah(item.remaining)} left`
+                    : `${formatRupiah(Math.abs(item.remaining))} over`}
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-100">
+              <div
+                className={
+                  item.status === "OVERBUDGET"
+                    ? "h-full rounded-full bg-red-500"
+                    : item.status === "DANGER"
+                      ? "h-full rounded-full bg-amber-500"
+                      : item.status === "WARNING"
+                        ? "h-full rounded-full bg-blue-500"
+                        : "h-full rounded-full bg-emerald-500"
+                }
+                style={{
+                  width: `${Math.min(item.progress, 100)}%`,
+                }}
+              />
+            </div>
+            <div className="mt-2 flex items-center justify-between text-xs text-zinc-500">
+              <span>{formatRupiah(item.spent)} spent</span>
+              <span
+                className={item.status === "OVERBUDGET" ? "text-red-700" : ""}
+              >
+                {item.progress}% used - {item.status}
               </span>
             </div>
-            <p className="mt-1 text-xs text-zinc-500">
-              {item.userName} - {formatRupiah(item.spent)} used
-            </p>
           </div>
         ))}
       </div>
@@ -680,7 +946,15 @@ function RecentTransactions({
   );
 }
 
-function AIInsight({ insight }: { insight: DashboardData["aiInsight"] }) {
+function AIInsight({
+  insight,
+  isLoading,
+  error,
+}: {
+  insight: DashboardAiInsight;
+  isLoading: boolean;
+  error: string | null;
+}) {
   const toneClass =
     insight.tone === "warning"
       ? "border-red-200 bg-red-50"
@@ -690,8 +964,14 @@ function AIInsight({ insight }: { insight: DashboardData["aiInsight"] }) {
 
   return (
     <div className={`rounded-2xl border p-4 ${toneClass}`}>
+      {isLoading ? (
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Generating with OpenRouter
+        </p>
+      ) : null}
       <p className="text-sm font-semibold text-zinc-950">{insight.title}</p>
       <p className="mt-2 text-sm leading-6 text-zinc-600">{insight.message}</p>
+      {error ? <p className="mt-3 text-xs text-zinc-500">{error}</p> : null}
     </div>
   );
 }

@@ -3,7 +3,11 @@
 import { FormEvent, useMemo, useState } from "react";
 
 import { WalletType } from "@/lib/prisma-enums";
-import { formatRupiah } from "@/lib/money";
+import {
+  formatAmountInput,
+  formatRupiah,
+  normalizeAmountInput,
+} from "@/lib/money";
 import { getWalletTypeLabel, walletTypeOptions } from "@/lib/wallets";
 
 type WalletView = {
@@ -26,7 +30,7 @@ type WalletFormState = {
 const emptyForm: WalletFormState = {
   name: "",
   type: WalletType.BANK,
-  initialBalance: "0",
+  initialBalance: formatAmountInput("0"),
   isDefault: false,
 };
 
@@ -34,7 +38,7 @@ function toFormState(wallet: WalletView): WalletFormState {
   return {
     name: wallet.name,
     type: wallet.type,
-    initialBalance: String(wallet.initialBalance),
+    initialBalance: formatAmountInput(wallet.initialBalance),
     isDefault: wallet.isDefault,
   };
 }
@@ -330,12 +334,12 @@ function WalletForm({
           onChange={(event) =>
             onChange({
               ...form,
-              initialBalance: event.target.value.replace(/[^\d-]/g, ""),
+              initialBalance: normalizeAmountInput(event.target.value),
             })
           }
           inputMode="numeric"
           className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-          placeholder="0"
+          placeholder="Rp 0"
           required
         />
       </div>

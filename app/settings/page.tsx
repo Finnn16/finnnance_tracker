@@ -104,6 +104,7 @@ export default async function SettingsPage() {
                 transactionCount: category._count.transactions,
               }),
             )}
+            availableToBudgetByUser={{} as Record<string, number>}
             users={users}
             currentUserId={user.id}
             currentUserRole={user.role}

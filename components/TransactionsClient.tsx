@@ -3,7 +3,11 @@
 import { FormEvent, useMemo, useState } from "react";
 
 import { TransactionType } from "@/lib/prisma-enums";
-import { formatRupiah } from "@/lib/money";
+import {
+  formatAmountInput,
+  formatRupiah,
+  normalizeAmountInput,
+} from "@/lib/money";
 import {
   getTransactionTypeLabel,
   transactionTypeOptions,
@@ -63,22 +67,6 @@ type TransactionFormState = {
 
 function todayInputValue() {
   return new Date().toISOString().slice(0, 10);
-}
-
-function formatAmountInput(value: string) {
-  const digits = value.replace(/[^\d]/g, "");
-
-  if (!digits) {
-    return "";
-  }
-
-  return `Rp ${Number(digits).toLocaleString("id-ID")}`;
-}
-
-function normalizeAmountInput(value: string) {
-  const digits = value.replace(/[^\d]/g, "");
-
-  return digits ? formatAmountInput(digits) : "";
 }
 
 function getCategoryGroups(

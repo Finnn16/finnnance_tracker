@@ -11,10 +11,19 @@ export const dynamic = "force-dynamic";
 
 export default async function BudgetsPage() {
   const user = await requireUnlockedAppUser("/budgets");
-  const [users, budgetCategories, budgets] = await Promise.all([
+  const [users, wallets, budgetCategories, budgets] = await Promise.all([
     prisma.user.findMany({
       select: { id: true, name: true, email: true },
       orderBy: { name: "asc" },
+    }),
+    prisma.wallet.findMany({
+      where: user.role === UserRole.ADMIN ? undefined : { userId: user.id },
+      include: { user: { select: { name: true } } },
+      orderBy: [
+        { user: { name: "asc" } },
+        { isDefault: "desc" },
+        { name: "asc" },
+      ],
     }),
     prisma.budgetCategory.findMany({
       where: user.role === UserRole.ADMIN ? undefined : { userId: user.id },
@@ -33,6 +42,16 @@ export default async function BudgetsPage() {
       orderBy: [{ month: "desc" }, { budgetCategory: { name: "asc" } }],
     }),
   ]);
+
+  const availableToBudgetByUser = wallets.reduce<Record<string, number>>(
+    (accumulator, wallet) => {
+      accumulator[wallet.userId] =
+        (accumulator[wallet.userId] || 0) + wallet.currentBalance;
+
+      return accumulator;
+    },
+    {},
+  );
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-100">
@@ -85,6 +104,7 @@ export default async function BudgetsPage() {
               }),
             )}
             users={users}
+            availableToBudgetByUser={availableToBudgetByUser}
             currentUserId={user.id}
             currentUserRole={user.role}
           />

@@ -48,6 +48,13 @@ enum TransactionConfirmationStatus {
   FAILED
 }
 
+enum BudgetStatus {
+  DRAFT
+  SAFE
+  OVERPLANNED
+  LOCKED
+}
+
 model User {
   id                String    @id @default(cuid())
   clerkUserId       String?   @unique @map("clerk_user_id")
@@ -63,6 +70,7 @@ model User {
   transactions Transaction[]
   budgets      Budget[]
   budgetCategories BudgetCategory[]
+  budgetMonths BudgetMonth[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -147,6 +155,7 @@ model BudgetCategory {
 
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   budgets      Budget[]
+  budgetMonthEntries BudgetMonthEntry[]
   transactions Transaction[]
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -155,6 +164,47 @@ model BudgetCategory {
   @@unique([userId, name])
   @@index([userId, isHidden])
   @@map("budget_categories")
+}
+
+model BudgetMonth {
+  id                String       @id @default(cuid())
+  userId            String       @map("user_id")
+  month             DateTime
+  availableToBudget Decimal      @default(0) @map("available_to_budget")
+  budgetedAmount    Decimal      @default(0) @map("budgeted_amount")
+  unallocatedAmount Decimal      @default(0) @map("unallocated_amount")
+  overplannedAmount Decimal      @default(0) @map("overplanned_amount")
+  status            BudgetStatus @default(DRAFT)
+  strictMode        Boolean      @default(false) @map("strict_mode")
+
+  user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries  BudgetMonthEntry[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, month])
+  @@index([userId])
+  @@index([month])
+  @@map("budget_months")
+}
+
+model BudgetMonthEntry {
+  id              String   @id @default(cuid())
+  budgetMonthId   String   @map("budget_month_id")
+  budgetCategoryId String  @map("budget_category_id")
+  amount          Decimal
+
+  budgetMonth   BudgetMonth   @relation(fields: [budgetMonthId], references: [id], onDelete: Cascade)
+  budgetCategory BudgetCategory @relation(fields: [budgetCategoryId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([budgetMonthId, budgetCategoryId])
+  @@index([budgetMonthId])
+  @@index([budgetCategoryId])
+  @@map("budget_month_entries")
 }
 
 model Transaction {

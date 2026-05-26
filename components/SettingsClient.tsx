@@ -4,7 +4,11 @@ import { FormEvent, ReactNode, useMemo, useState } from "react";
 
 import { monthInputValue } from "@/lib/budgets";
 import { TransactionType, UserRole } from "@/lib/prisma-enums";
-import { formatRupiah } from "@/lib/money";
+import {
+  formatAmountInput,
+  formatRupiah,
+  normalizeAmountInput,
+} from "@/lib/money";
 import { transactionTypeOptions } from "@/lib/transactions";
 
 type UserOption = {
@@ -193,6 +197,7 @@ export function SettingsClient({
   initialCategoryGroups,
   initialBudgetCategories,
   initialBudgets,
+  availableToBudgetByUser,
   users,
   currentUserId,
   currentUserRole,
@@ -202,6 +207,7 @@ export function SettingsClient({
   initialCategoryGroups: CategoryGroupView[];
   initialBudgetCategories: BudgetCategoryView[];
   initialBudgets: BudgetView[];
+  availableToBudgetByUser: Record<string, number>;
   users: UserOption[];
   currentUserId: string;
   currentUserRole: UserRole;
@@ -257,7 +263,7 @@ export function SettingsClient({
     budgetCategoryId:
       initialBudgetCategories.find((category) => !category.isHidden)?.id || "",
     month: monthInputValue(new Date()),
-    amount: "",
+    amount: formatAmountInput("0"),
   });
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -289,6 +295,36 @@ export function SettingsClient({
       }, 0),
     [budgets, budgetForm.month, budgetForm.userId],
   );
+  const selectedMonthBudgets = useMemo(
+    () =>
+      budgets.filter((budget) => {
+        const matchesUser = budget.userId === budgetForm.userId;
+        const matchesMonth =
+          monthInputValue(new Date(budget.month)) === budgetForm.month;
+
+        return matchesUser && matchesMonth;
+      }),
+    [budgets, budgetForm.month, budgetForm.userId],
+  );
+  const selectedAvailableToBudget =
+    availableToBudgetByUser[budgetForm.userId] || 0;
+  const selectedUnallocatedAmount = Math.max(
+    selectedAvailableToBudget - selectedMonthTotal,
+    0,
+  );
+  const selectedOverplannedAmount = Math.max(
+    selectedMonthTotal - selectedAvailableToBudget,
+    0,
+  );
+  const selectedBudgetStatus =
+    selectedOverplannedAmount > 0 ? "OVERPLANNED" : "SAFE";
+  const selectedBudgetUsage =
+    selectedAvailableToBudget > 0
+      ? Math.min(
+          100,
+          Math.round((selectedMonthTotal / selectedAvailableToBudget) * 100),
+        )
+      : 0;
   const filteredCategories = useMemo(() => {
     const search = categorySearch.trim().toLowerCase();
 
@@ -1129,67 +1165,112 @@ export function SettingsClient({
 
         {view === "budgets" && activePanel === "budgets" ? (
           <div className="grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-            <div className="flex min-h-0 flex-col rounded-2xl border border-zinc-200 bg-white">
-              <div className="border-b border-zinc-100 p-5">
-                <h2 className="text-lg font-semibold text-zinc-950">
-                  Monthly Budget
-                </h2>
-                <p className="mt-1 text-sm text-zinc-500">
-                  Split one month into envelopes like food, snacks, and
-                  lifestyle.
-                </p>
-              </div>
-              <div className="border-b border-zinc-100 px-5 py-4">
-                <div className="rounded-xl bg-blue-50 px-4 py-3">
-                  <p className="text-xs font-semibold uppercase text-blue-700">
-                    Selected month total
-                  </p>
-                  <p className="mt-1 text-2xl font-bold text-blue-950">
-                    {formatRupiah(selectedMonthTotal)}
-                  </p>
-                  <p className="mt-1 text-sm text-blue-700">
-                    {budgetForm.month}
-                  </p>
+            <div className="flex min-h-0 max-h-[calc(100vh-12rem)] flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+              <div className="shrink-0 border-b border-zinc-100 px-5 py-4">
+                <div className="flex items-start justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      Budget status
+                    </p>
+                    <p className="mt-1 text-lg font-bold text-zinc-950">
+                      {selectedBudgetStatus}
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-500">
+                      {budgetForm.month} -{" "}
+                      {visibleUsers.find(
+                        (user) => user.id === budgetForm.userId,
+                      )?.name ?? budgetForm.userId}
+                    </p>
+                  </div>
+                  <div className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-950">
+                    {selectedBudgetUsage}% used
+                  </div>
                 </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <SummaryTile
+                    label="Available to Budget"
+                    value={formatRupiah(selectedAvailableToBudget)}
+                    tone="blue"
+                  />
+                  <SummaryTile
+                    label="Budgeted"
+                    value={formatRupiah(selectedMonthTotal)}
+                    tone="green"
+                  />
+                  <SummaryTile
+                    label="Unallocated"
+                    value={formatRupiah(selectedUnallocatedAmount)}
+                    tone="slate"
+                  />
+                  <SummaryTile
+                    label="Overplanned"
+                    value={formatRupiah(selectedOverplannedAmount)}
+                    tone={selectedOverplannedAmount > 0 ? "red" : "slate"}
+                  />
+                </div>
+                {selectedOverplannedAmount > 0 ? (
+                  <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    Budget for this month exceeds available balance by{" "}
+                    {formatRupiah(selectedOverplannedAmount)}.
+                  </p>
+                ) : (
+                  <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                    Budget fits within available balance. You still have{" "}
+                    {formatRupiah(selectedUnallocatedAmount)} unallocated.
+                  </p>
+                )}
               </div>
-              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
-                {budgets.length === 0 ? (
-                  <EmptyPanel text="No budgets set yet." />
+              <div className="min-h-0 flex-1 overflow-y-auto p-5">
+                <div className="mb-3 flex items-center justify-between gap-3 text-xs text-zinc-500">
+                  <span>
+                    {selectedMonthBudgets.length} budget(s) for{" "}
+                    {budgetForm.month}
+                  </span>
+                  <span>Updated from the selected user only</span>
+                </div>
+
+                {selectedMonthBudgets.length === 0 ? (
+                  <EmptyPanel text="No budgets set for this month." />
                 ) : null}
-                {budgets.map((budget) => (
-                  <article
-                    key={budget.id}
-                    className="flex flex-col gap-3 rounded-lg border border-zinc-100 p-4 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-semibold text-zinc-950">
-                          {budget.budgetCategoryName}
-                        </h3>
-                        {budget.budgetCategoryHidden ? (
-                          <Badge tone="amber">Hidden</Badge>
-                        ) : null}
+
+                <div className="space-y-2 pb-2">
+                  {selectedMonthBudgets.map((budget) => (
+                    <article
+                      key={budget.id}
+                      className="rounded-xl border border-zinc-100 bg-white px-4 py-2.5 shadow-sm"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="truncate text-sm font-semibold text-zinc-950">
+                              {budget.budgetCategoryName}
+                            </h3>
+                            {budget.budgetCategoryHidden ? (
+                              <Badge tone="amber">Hidden</Badge>
+                            ) : null}
+                          </div>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            {budget.userName}
+                          </p>
+                        </div>
+
+                        <div className="flex shrink-0 items-center gap-3">
+                          <p className="text-sm font-bold text-zinc-950">
+                            {formatRupiah(budget.amount)}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteBudget(budget.id)}
+                            disabled={isSubmitting}
+                            className="rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </div>
-                      <p className="mt-1 text-sm text-zinc-500">
-                        {monthInputValue(new Date(budget.month))} -{" "}
-                        {budget.userName}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <p className="font-bold text-zinc-950">
-                        {formatRupiah(budget.amount)}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteBudget(budget.id)}
-                        disabled={isSubmitting}
-                        className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </article>
-                ))}
+                    </article>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -1281,12 +1362,12 @@ export function SettingsClient({
                     onChange={(event) =>
                       setBudgetForm({
                         ...budgetForm,
-                        amount: event.target.value.replace(/[^\d]/g, ""),
+                        amount: normalizeAmountInput(event.target.value),
                       })
                     }
                     inputMode="numeric"
                     className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950"
-                    placeholder="1300000"
+                    placeholder="Rp 1.300.000"
                     required
                   />
                 </div>
@@ -1370,6 +1451,34 @@ function HiddenToggle({
       />
       Hidden
     </label>
+  );
+}
+
+function SummaryTile({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "blue" | "green" | "red" | "slate";
+}) {
+  const toneClass =
+    tone === "blue"
+      ? "border-blue-200 bg-blue-50 text-blue-700"
+      : tone === "green"
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : tone === "red"
+          ? "border-red-200 bg-red-50 text-red-700"
+          : "border-zinc-200 bg-zinc-50 text-zinc-700";
+
+  return (
+    <article className={`rounded-xl border px-4 py-3 ${toneClass}`}>
+      <p className="text-xs font-semibold uppercase tracking-wide opacity-80">
+        {label}
+      </p>
+      <p className="mt-2 text-base font-bold text-zinc-950">{value}</p>
+    </article>
   );
 }
 
