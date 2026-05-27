@@ -46,3 +46,12 @@ export const TransactionConfirmationStatus = {
 
 export type TransactionConfirmationStatus =
   (typeof TransactionConfirmationStatus)[keyof typeof TransactionConfirmationStatus];
+
+export const SavingLedgerType = {
+  ADD: "ADD",
+  WITHDRAW: "WITHDRAW",
+  ADJUSTMENT: "ADJUSTMENT",
+} as const;
+
+export type SavingLedgerType =
+  (typeof SavingLedgerType)[keyof typeof SavingLedgerType];

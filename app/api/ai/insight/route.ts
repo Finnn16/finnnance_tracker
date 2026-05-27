@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { env } from "@/lib/env";
 import { getUnlockedAppUserForRequest } from "@/lib/secure-api-user";
+import { measureServerOperation } from "@/lib/server-performance";
 
 type AiInsightRequest = {
   periodLabel?: string;
@@ -13,10 +14,13 @@ type AiInsightRequest = {
     transactionCount?: number;
   };
   budget?: {
+    budgetableIncome?: number;
     availableToBudget?: number;
-    budgetedAmount?: number;
-    unallocatedAmount?: number;
-    overplannedAmount?: number;
+    totalBudget?: number;
+    spent?: number;
+    unbudgetedSpent?: number;
+    fundingShortfall?: number;
+    remaining?: number;
     status?: string;
     usedPercentage?: number;
   };
@@ -132,10 +136,13 @@ function buildPrompt(input: AiInsightRequest) {
     `Net cashflow: ${toCurrency(input.summary?.netCashflow)}`,
     `Total balance: ${toCurrency(input.summary?.totalBalance)}`,
     `Transactions: ${input.summary?.transactionCount || 0}`,
-    `Budget available: ${toCurrency(input.budget?.availableToBudget)}`,
-    `Budgeted: ${toCurrency(input.budget?.budgetedAmount)}`,
-    `Unallocated: ${toCurrency(input.budget?.unallocatedAmount)}`,
-    `Overplanned: ${toCurrency(input.budget?.overplannedAmount)}`,
+    `Budgetable income: ${toCurrency(input.budget?.budgetableIncome)}`,
+    `Available to budget: ${toCurrency(input.budget?.availableToBudget)}`,
+    `Total budget set: ${toCurrency(input.budget?.totalBudget)}`,
+    `Budgeted spent for period: ${toCurrency(input.budget?.spent)}`,
+    `Unbudgeted expense for period: ${toCurrency(input.budget?.unbudgetedSpent)}`,
+    `Funding shortfall: ${toCurrency(input.budget?.fundingShortfall)}`,
+    `Remaining budget: ${toCurrency(input.budget?.remaining)}`,
     `Budget status: ${input.budget?.status || "unknown"}`,
     `Budget used: ${input.budget?.usedPercentage || 0}%`,
     `Top categories: ${topCategories || "none"}`,
@@ -146,7 +153,6 @@ function buildPrompt(input: AiInsightRequest) {
 function buildFallbackInsight(input: AiInsightRequest): AiInsightResponse {
   const netCashflow = input.summary?.netCashflow || 0;
   const budgetStatus = input.budget?.status || "SAFE";
-  const overplanned = input.budget?.overplannedAmount || 0;
   const topCategory = input.topCategories?.[0];
 
   if (netCashflow < 0) {
@@ -158,7 +164,16 @@ function buildFallbackInsight(input: AiInsightRequest): AiInsightResponse {
     };
   }
 
-  if (budgetStatus === "OVERPLANNED" || overplanned > 0) {
+  if (budgetStatus === "UNDERFUNDED") {
+    return {
+      title: "Budget kekurangan dana",
+      message:
+        "Ada budget atau savings aktif yang belum tertutup saldo wallet. Kurangi rencana atau tambahkan dana.",
+      tone: "warning",
+    };
+  }
+
+  if (budgetStatus === "OVERPLANNED") {
     return {
       title: "Budget mulai mepet",
       message:
@@ -192,7 +207,7 @@ function buildFallbackResponse(input: AiInsightRequest, warning: string) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await getUnlockedAppUserForRequest();
+  const auth = await getUnlockedAppUserForRequest("api /api/ai/insight");
 
   if (!auth.ok) {
     return auth.response;
@@ -210,39 +225,47 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const response = await fetch(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.openrouterApiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: OPENROUTER_MODEL,
-          temperature: 0.3,
-          max_tokens: 220,
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are a concise personal finance assistant that outputs valid JSON only.",
-            },
-            {
-              role: "user",
-              content: buildPrompt(body),
-            },
-          ],
+    const response = await measureServerOperation(
+      "api /api/ai/insight.openrouter",
+      () =>
+        fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${env.openrouterApiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: OPENROUTER_MODEL,
+            temperature: 0.3,
+            max_tokens: 220,
+            messages: [
+              {
+                role: "system",
+                content:
+                  "You are a concise personal finance assistant that outputs valid JSON only.",
+              },
+              {
+                role: "user",
+                content: buildPrompt(body),
+              },
+            ],
+          }),
         }),
-      },
     );
 
     if (!response.ok) {
       const text = await response.text();
+      if (response.status === 429) {
+        return buildFallbackResponse(
+          body,
+          "OpenRouter sedang kena limit harian; insight lokal dipakai sementara.",
+        );
+      }
+
       console.error("OpenRouter request failed:", response.status, text);
-      return NextResponse.json(
-        { error: "Failed to generate AI insight." },
-        { status: 502 },
+      return buildFallbackResponse(
+        body,
+        "OpenRouter gagal merespons; insight lokal dipakai sementara.",
       );
     }
 

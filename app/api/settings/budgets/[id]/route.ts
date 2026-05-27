@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { UserRole } from "@/lib/prisma-enums";
+import { getGlobalAllocationSummary } from "@/lib/global-allocation";
 import { prisma } from "@/lib/prisma";
 import { getUnlockedAppUserForRequest } from "@/lib/secure-api-user";
 
@@ -36,6 +37,7 @@ export async function DELETE(
   }
 
   await prisma.budget.delete({ where: { id } });
+  const allocation = await getGlobalAllocationSummary(prisma, budget.userId);
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, fundingShortfall: allocation.shortfall });
 }

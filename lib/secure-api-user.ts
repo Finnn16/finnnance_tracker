@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { isAppUnlocked } from "@/lib/app-lock";
 import { getCurrentAppUserForRequest } from "@/lib/clerk-auth";
+import { measureServerOperation } from "@/lib/server-performance";
 
 type UnlockedAppUserResult =
   | {
@@ -15,8 +16,13 @@ type UnlockedAppUserResult =
       response: NextResponse;
     };
 
-export async function getUnlockedAppUserForRequest(): Promise<UnlockedAppUserResult> {
-  const auth = await getCurrentAppUserForRequest();
+export async function getUnlockedAppUserForRequest(
+  routeLabel = "api",
+): Promise<UnlockedAppUserResult> {
+  const auth = await measureServerOperation(
+    `${routeLabel}.authenticated-user`,
+    () => getCurrentAppUserForRequest(),
+  );
 
   if (!auth.user) {
     return {
@@ -28,7 +34,13 @@ export async function getUnlockedAppUserForRequest(): Promise<UnlockedAppUserRes
     };
   }
 
-  if (!(await isAppUnlocked(auth.user.id))) {
+  const user = auth.user;
+  const isUnlocked = await measureServerOperation(
+    `${routeLabel}.unlock-cookie`,
+    () => isAppUnlocked(user.id),
+  );
+
+  if (!isUnlocked) {
     return {
       ok: false,
       response: NextResponse.json(
@@ -40,6 +52,6 @@ export async function getUnlockedAppUserForRequest(): Promise<UnlockedAppUserRes
 
   return {
     ok: true,
-    user: auth.user,
+    user,
   };
 }

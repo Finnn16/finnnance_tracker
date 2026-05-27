@@ -55,6 +55,12 @@ enum BudgetStatus {
   LOCKED
 }
 
+enum SavingLedgerType {
+  ADD
+  WITHDRAW
+  ADJUSTMENT
+}
+
 model User {
   id                String    @id @default(cuid())
   clerkUserId       String?   @unique @map("clerk_user_id")
@@ -66,11 +72,12 @@ model User {
   pinFailedAttempts Int       @default(0) @map("pin_failed_attempts")
   pinLockedUntil    DateTime? @map("pin_locked_until")
 
-  wallets      Wallet[]
-  transactions Transaction[]
-  budgets      Budget[]
+  wallets          Wallet[]
+  transactions     Transaction[]
+  budgets          Budget[]
   budgetCategories BudgetCategory[]
-  budgetMonths BudgetMonth[]
+  budgetMonths     BudgetMonth[]
+  savingLedgers    SavingLedger[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -113,8 +120,8 @@ model Category {
   isFallback   Boolean         @default(false) @map("is_fallback")
   isHidden     Boolean         @default(false) @map("is_hidden")
 
-  parent       Category?       @relation("CategoryTree", fields: [parentId], references: [id])
-  children     Category[]      @relation("CategoryTree")
+  parent       Category?     @relation("CategoryTree", fields: [parentId], references: [id])
+  children     Category[]    @relation("CategoryTree")
   transactions Transaction[]
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -134,7 +141,7 @@ model Budget {
   month            DateTime
   amount           Int
 
-  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   budgetCategory BudgetCategory? @relation(fields: [budgetCategoryId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -147,16 +154,16 @@ model Budget {
 }
 
 model BudgetCategory {
-  id       String @id @default(cuid())
-  userId   String @map("user_id")
-  name     String
-  sortOrder Int   @default(0) @map("sort_order")
-  isHidden Boolean @default(false) @map("is_hidden")
+  id        String  @id @default(cuid())
+  userId    String  @map("user_id")
+  name      String
+  sortOrder Int     @default(0) @map("sort_order")
+  isHidden  Boolean @default(false) @map("is_hidden")
 
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  budgets      Budget[]
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  budgets            Budget[]
   budgetMonthEntries BudgetMonthEntry[]
-  transactions Transaction[]
+  transactions       Transaction[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -177,8 +184,8 @@ model BudgetMonth {
   status            BudgetStatus @default(DRAFT)
   strictMode        Boolean      @default(false) @map("strict_mode")
 
-  user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  entries  BudgetMonthEntry[]
+  user    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries BudgetMonthEntry[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -190,12 +197,12 @@ model BudgetMonth {
 }
 
 model BudgetMonthEntry {
-  id              String   @id @default(cuid())
-  budgetMonthId   String   @map("budget_month_id")
+  id               String  @id @default(cuid())
+  budgetMonthId    String  @map("budget_month_id")
   budgetCategoryId String  @map("budget_category_id")
-  amount          Decimal
+  amount           Decimal
 
-  budgetMonth   BudgetMonth   @relation(fields: [budgetMonthId], references: [id], onDelete: Cascade)
+  budgetMonth    BudgetMonth    @relation(fields: [budgetMonthId], references: [id], onDelete: Cascade)
   budgetCategory BudgetCategory @relation(fields: [budgetCategoryId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -214,19 +221,24 @@ model Transaction {
   transferToWalletId String?                       @map("transfer_to_wallet_id")
   categoryId         String?                       @map("category_id")
   budgetCategoryId   String?                       @map("budget_category_id")
+  budgetMonth        DateTime?                     @map("budget_month")
   type               TransactionType
   amount             Int
+  savingsAmount      Int                           @default(0) @map("savings_amount")
+  budgetableAmount   Int                           @default(0) @map("budgetable_amount")
   description        String
   source             TransactionSource             @default(WEB)
   rawMessage         String?                       @map("raw_message")
   confirmationStatus TransactionConfirmationStatus @default(CONFIRMED) @map("confirmation_status")
   transactionDate    DateTime                      @default(now()) @map("transaction_date")
+  isPrepaid          Boolean                       @default(false) @map("is_prepaid")
 
-  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  wallet           Wallet    @relation("TransactionWallet", fields: [walletId], references: [id])
-  transferToWallet Wallet?   @relation("TransactionTransferWallet", fields: [transferToWalletId], references: [id])
-  category         Category? @relation(fields: [categoryId], references: [id])
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet           Wallet          @relation("TransactionWallet", fields: [walletId], references: [id])
+  transferToWallet Wallet?         @relation("TransactionTransferWallet", fields: [transferToWalletId], references: [id])
+  category         Category?       @relation(fields: [categoryId], references: [id])
   budgetCategory   BudgetCategory? @relation(fields: [budgetCategoryId], references: [id], onDelete: SetNull)
+  savingLedgers    SavingLedger[]  @relation("SavingsSourceTransaction")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -235,5 +247,28 @@ model Transaction {
   @@index([walletId])
   @@index([categoryId])
   @@index([budgetCategoryId])
+  @@index([budgetMonth])
   @@map("transactions")
+}
+
+model SavingLedger {
+  id                  String           @id @default(cuid())
+  userId              String           @map("user_id")
+  type                SavingLedgerType
+  amount              Decimal
+  note                String?
+  date                DateTime         @map("date")
+  sourceTransactionId String?          @map("source_transaction_id")
+
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceTransaction Transaction? @relation("SavingsSourceTransaction", fields: [sourceTransactionId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([date])
+  @@index([type])
+  @@index([sourceTransactionId])
+  @@map("saving_ledgers")
 }

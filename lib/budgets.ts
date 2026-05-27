@@ -1,11 +1,35 @@
 import { parseIntegerAmount } from "@/lib/money";
 
+export {
+  calculateBudgetableIncomeAmount,
+  calculateBudgetPeriodSummary,
+} from "@/lib/budget-calculations";
+
 export type BudgetPayload = {
   userId: string;
   budgetCategoryId: string;
   month: Date;
   amount: number;
 };
+
+export function normalizeMonthStart(value: string | Date) {
+  return toMonthStart(value);
+}
+
+export function isPrepaidTransaction(transactionDate: Date, budgetMonth: Date) {
+  const transactionMonth = new Date(
+    transactionDate.getFullYear(),
+    transactionDate.getMonth(),
+    1,
+  );
+  const normalizedBudgetMonth = new Date(
+    budgetMonth.getFullYear(),
+    budgetMonth.getMonth(),
+    1,
+  );
+
+  return transactionMonth < normalizedBudgetMonth;
+}
 
 export function toMonthStart(value: string | Date) {
   const date = value instanceof Date ? value : new Date(`${value}-01`);
@@ -58,8 +82,8 @@ export function validateBudgetPayload(
 
   const amount = parseIntegerAmount(input?.amount);
 
-  if (amount === null || amount < 0) {
-    return { ok: false, error: "Budget amount must be 0 or greater." };
+  if (amount === null || amount <= 0) {
+    return { ok: false, error: "Budget amount must be greater than 0." };
   }
 
   return {

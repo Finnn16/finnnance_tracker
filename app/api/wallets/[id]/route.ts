@@ -4,6 +4,11 @@ import { prisma } from "@/lib/prisma";
 import type { PrismaTransactionClient } from "@/lib/prisma-transaction";
 import { getUnlockedAppUserForRequest } from "@/lib/secure-api-user";
 import { createWalletKey, validateWalletPayload } from "@/lib/wallets";
+import {
+  assertGlobalAllocationNotWorse,
+  getGlobalAllocationSummary,
+  GlobalAllocationError,
+} from "@/lib/global-allocation";
 
 type WalletRouteProps = {
   params: Promise<{ id: string }>;
@@ -54,6 +59,10 @@ export async function PATCH(
   const isDefault =
     result.data.isDefault ||
     (existingWallet.isDefault && !hasOtherDefaultWallet);
+  const previousAllocation = await getGlobalAllocationSummary(
+    prisma,
+    auth.user.id,
+  );
 
   try {
     const wallet = await prisma.$transaction(
@@ -65,7 +74,7 @@ export async function PATCH(
           });
         }
 
-        return tx.wallet.update({
+        const updatedWallet = await tx.wallet.update({
           where: { id },
           data: {
             key: createWalletKey(name),
@@ -76,11 +85,23 @@ export async function PATCH(
             isDefault,
           },
         });
+
+        await assertGlobalAllocationNotWorse({
+          db: tx,
+          userId: auth.user.id,
+          previousShortfall: previousAllocation.shortfall,
+        });
+
+        return updatedWallet;
       },
     );
 
     return NextResponse.json({ wallet });
   } catch (error) {
+    if (error instanceof GlobalAllocationError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
     console.error("Failed to update wallet:", error);
     return NextResponse.json(
       { error: "Wallet name is already used." },
@@ -141,24 +162,43 @@ export async function DELETE(
     );
   }
 
-  await prisma.$transaction(async (tx: PrismaTransactionClient) => {
-    await tx.wallet.delete({ where: { id } });
+  const previousAllocation = await getGlobalAllocationSummary(
+    prisma,
+    auth.user.id,
+  );
 
-    if (wallet.isDefault) {
-      const replacement = await tx.wallet.findFirst({
-        where: { userId: auth.user.id },
-        select: { id: true },
-        orderBy: { name: "asc" },
-      });
+  try {
+    await prisma.$transaction(async (tx: PrismaTransactionClient) => {
+      await tx.wallet.delete({ where: { id } });
 
-      if (replacement) {
-        await tx.wallet.update({
-          where: { id: replacement.id },
-          data: { isDefault: true },
+      if (wallet.isDefault) {
+        const replacement = await tx.wallet.findFirst({
+          where: { userId: auth.user.id },
+          select: { id: true },
+          orderBy: { name: "asc" },
         });
-      }
-    }
-  });
 
-  return NextResponse.json({ ok: true });
+        if (replacement) {
+          await tx.wallet.update({
+            where: { id: replacement.id },
+            data: { isDefault: true },
+          });
+        }
+      }
+
+      await assertGlobalAllocationNotWorse({
+        db: tx,
+        userId: auth.user.id,
+        previousShortfall: previousAllocation.shortfall,
+      });
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    if (error instanceof GlobalAllocationError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    throw error;
+  }
 }

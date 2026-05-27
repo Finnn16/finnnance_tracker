@@ -2,7 +2,7 @@
 
 import { FormEvent, ReactNode, useMemo, useState } from "react";
 
-import { monthInputValue } from "@/lib/budgets";
+import { calculateBudgetPeriodSummary, monthInputValue } from "@/lib/budgets";
 import { TransactionType, UserRole } from "@/lib/prisma-enums";
 import {
   formatAmountInput,
@@ -55,6 +55,8 @@ type BudgetView = {
   budgetCategoryHidden: boolean;
   month: string;
   amount: number;
+  spent: number;
+  paidEarlyAmount: number;
 };
 
 type CategoryForm = {
@@ -197,7 +199,9 @@ export function SettingsClient({
   initialCategoryGroups,
   initialBudgetCategories,
   initialBudgets,
-  availableToBudgetByUser,
+  budgetableIncomeByPeriod,
+  unbudgetedSpentByPeriod,
+  fundingShortfallByUser,
   users,
   currentUserId,
   currentUserRole,
@@ -207,7 +211,9 @@ export function SettingsClient({
   initialCategoryGroups: CategoryGroupView[];
   initialBudgetCategories: BudgetCategoryView[];
   initialBudgets: BudgetView[];
-  availableToBudgetByUser: Record<string, number>;
+  budgetableIncomeByPeriod: Record<string, number>;
+  unbudgetedSpentByPeriod: Record<string, number>;
+  fundingShortfallByUser: Record<string, number>;
   users: UserOption[];
   currentUserId: string;
   currentUserRole: UserRole;
@@ -221,6 +227,9 @@ export function SettingsClient({
     initialBudgetCategories,
   );
   const [budgets, setBudgets] = useState(initialBudgets);
+  const [fundingShortfalls, setFundingShortfalls] = useState(
+    fundingShortfallByUser,
+  );
   const [activePanel, setActivePanel] = useState<
     "categories" | "groups" | "budgetCategories" | "budgets"
   >(view === "budgets" ? "budgets" : "categories");
@@ -284,17 +293,6 @@ export function SettingsClient({
       ),
     [budgetCategories, budgetForm.userId],
   );
-  const selectedMonthTotal = useMemo(
-    () =>
-      budgets.reduce((total, budget) => {
-        const matchesUser = budget.userId === budgetForm.userId;
-        const matchesMonth =
-          monthInputValue(new Date(budget.month)) === budgetForm.month;
-
-        return matchesUser && matchesMonth ? total + budget.amount : total;
-      }, 0),
-    [budgets, budgetForm.month, budgetForm.userId],
-  );
   const selectedMonthBudgets = useMemo(
     () =>
       budgets.filter((budget) => {
@@ -306,25 +304,27 @@ export function SettingsClient({
       }),
     [budgets, budgetForm.month, budgetForm.userId],
   );
-  const selectedAvailableToBudget =
-    availableToBudgetByUser[budgetForm.userId] || 0;
-  const selectedUnallocatedAmount = Math.max(
-    selectedAvailableToBudget - selectedMonthTotal,
-    0,
+  const selectedBudgetableIncome =
+    budgetableIncomeByPeriod[`${budgetForm.userId}|${budgetForm.month}`] || 0;
+  const selectedUnbudgetedSpent =
+    unbudgetedSpentByPeriod[`${budgetForm.userId}|${budgetForm.month}`] || 0;
+  const selectedFundingShortfall =
+    fundingShortfalls[budgetForm.userId] || 0;
+  const selectedBudgetSummary = useMemo(
+    () =>
+      calculateBudgetPeriodSummary({
+        budgetableIncome: selectedBudgetableIncome,
+        totalBudget: selectedMonthBudgets.reduce(
+          (total, budget) => total + budget.amount,
+          0,
+        ),
+        totalSpent: selectedMonthBudgets.reduce(
+          (total, budget) => total + budget.spent,
+          0,
+        ),
+      }),
+    [selectedBudgetableIncome, selectedMonthBudgets],
   );
-  const selectedOverplannedAmount = Math.max(
-    selectedMonthTotal - selectedAvailableToBudget,
-    0,
-  );
-  const selectedBudgetStatus =
-    selectedOverplannedAmount > 0 ? "OVERPLANNED" : "SAFE";
-  const selectedBudgetUsage =
-    selectedAvailableToBudget > 0
-      ? Math.min(
-          100,
-          Math.round((selectedMonthTotal / selectedAvailableToBudget) * 100),
-        )
-      : 0;
   const filteredCategories = useMemo(() => {
     const search = categorySearch.trim().toLowerCase();
 
@@ -760,7 +760,8 @@ export function SettingsClient({
         body: JSON.stringify(budgetForm),
       });
       const data = (await response.json()) as {
-        budget?: BudgetView;
+        budget?: Omit<BudgetView, "spent" | "paidEarlyAmount">;
+        fundingShortfall?: number;
         error?: string;
       };
 
@@ -774,16 +775,29 @@ export function SettingsClient({
       );
 
       setBudgetForm({ ...budgetForm, amount: "" });
+      setFundingShortfalls((current) => ({
+        ...current,
+        [data.budget!.userId]: data.fundingShortfall ?? current[data.budget!.userId] ?? 0,
+      }));
       setBudgets((current) => {
-        const existing = current.some(
+        const existingBudget = current.find(
           (budget) => budget.id === data.budget!.id,
         );
 
-        return existing
+        return existingBudget
           ? current.map((budget) =>
-              budget.id === data.budget!.id ? data.budget! : budget,
+              budget.id === data.budget!.id
+                ? {
+                    ...data.budget!,
+                    spent: budget.spent,
+                    paidEarlyAmount: budget.paidEarlyAmount,
+                  }
+                : budget,
             )
-          : [data.budget!, ...current];
+          : [
+              { ...data.budget!, spent: 0, paidEarlyAmount: 0 },
+              ...current,
+            ];
       });
       if (isNewBudget && data.budget.budgetCategoryId) {
         setBudgetCategories((current) =>
@@ -811,7 +825,10 @@ export function SettingsClient({
       const response = await fetch(`/api/settings/budgets/${budgetId}`, {
         method: "DELETE",
       });
-      const data = (await response.json()) as { error?: string };
+      const data = (await response.json()) as {
+        fundingShortfall?: number;
+        error?: string;
+      };
 
       if (!response.ok) {
         setError(data.error || "Failed to delete budget.");
@@ -821,6 +838,13 @@ export function SettingsClient({
       setBudgets((current) =>
         current.filter((budget) => budget.id !== budgetId),
       );
+      if (deletedBudget) {
+        setFundingShortfalls((current) => ({
+          ...current,
+          [deletedBudget.userId]:
+            data.fundingShortfall ?? current[deletedBudget.userId] ?? 0,
+        }));
+      }
       if (deletedBudget?.budgetCategoryId) {
         setBudgetCategories((current) =>
           current.map((category) =>
@@ -1167,58 +1191,43 @@ export function SettingsClient({
           <div className="grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
             <div className="flex min-h-0 max-h-[calc(100vh-12rem)] flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white">
               <div className="shrink-0 border-b border-zinc-100 px-5 py-4">
-                <div className="flex items-start justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                      Budget status
-                    </p>
-                    <p className="mt-1 text-lg font-bold text-zinc-950">
-                      {selectedBudgetStatus}
-                    </p>
-                    <p className="mt-1 text-sm text-zinc-500">
-                      {budgetForm.month} -{" "}
-                      {visibleUsers.find(
-                        (user) => user.id === budgetForm.userId,
-                      )?.name ?? budgetForm.userId}
-                    </p>
-                  </div>
-                  <div className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-950">
-                    {selectedBudgetUsage}% used
-                  </div>
-                </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                   <SummaryTile
-                    label="Available to Budget"
-                    value={formatRupiah(selectedAvailableToBudget)}
-                    tone="blue"
-                  />
-                  <SummaryTile
-                    label="Budgeted"
-                    value={formatRupiah(selectedMonthTotal)}
+                    label="Budgetable Income"
+                    value={formatRupiah(selectedBudgetSummary.budgetableIncome)}
                     tone="green"
                   />
                   <SummaryTile
-                    label="Unallocated"
-                    value={formatRupiah(selectedUnallocatedAmount)}
+                    label="Total Budget Set"
+                    value={formatRupiah(selectedBudgetSummary.totalBudget)}
                     tone="slate"
                   />
                   <SummaryTile
-                    label="Overplanned"
-                    value={formatRupiah(selectedOverplannedAmount)}
-                    tone={selectedOverplannedAmount > 0 ? "red" : "slate"}
+                    label="Available to Budget"
+                    value={formatRupiah(selectedBudgetSummary.availableToBudget)}
+                    tone={
+                      selectedBudgetSummary.availableToBudget < 0
+                        ? "red"
+                        : "blue"
+                    }
+                  />
+                  <SummaryTile
+                    label="Unbudgeted Expense"
+                    value={formatRupiah(selectedUnbudgetedSpent)}
+                    tone={selectedUnbudgetedSpent > 0 ? "red" : "slate"}
+                  />
+                  <SummaryTile
+                    label="Funding Shortfall"
+                    value={formatRupiah(selectedFundingShortfall)}
+                    tone={selectedFundingShortfall > 0 ? "red" : "slate"}
                   />
                 </div>
-                {selectedOverplannedAmount > 0 ? (
-                  <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    Budget for this month exceeds available balance by{" "}
-                    {formatRupiah(selectedOverplannedAmount)}.
+                {selectedFundingShortfall > 0 ? (
+                  <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                    UNDERFUNDED: Total savings dan sisa budget aktif melebihi
+                    saldo wallet sebesar {formatRupiah(selectedFundingShortfall)}.
                   </p>
-                ) : (
-                  <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                    Budget fits within available balance. You still have{" "}
-                    {formatRupiah(selectedUnallocatedAmount)} unallocated.
-                  </p>
-                )}
+                ) : null}
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto p-5">
                 <div className="mb-3 flex items-center justify-between gap-3 text-xs text-zinc-500">
@@ -1234,42 +1243,93 @@ export function SettingsClient({
                 ) : null}
 
                 <div className="space-y-2 pb-2">
-                  {selectedMonthBudgets.map((budget) => (
-                    <article
-                      key={budget.id}
-                      className="rounded-xl border border-zinc-100 bg-white px-4 py-2.5 shadow-sm"
-                    >
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="truncate text-sm font-semibold text-zinc-950">
-                              {budget.budgetCategoryName}
-                            </h3>
-                            {budget.budgetCategoryHidden ? (
-                              <Badge tone="amber">Hidden</Badge>
-                            ) : null}
-                          </div>
-                          <p className="mt-1 text-xs text-zinc-500">
-                            {budget.userName}
-                          </p>
-                        </div>
+                  {selectedMonthBudgets.map((budget) => {
+                    const remaining = budget.amount - budget.spent;
+                    const progress =
+                      budget.amount > 0
+                        ? Math.min(
+                            100,
+                            Math.round((budget.spent / budget.amount) * 100),
+                          )
+                        : 0;
+                    const status =
+                      budget.spent > budget.amount
+                        ? "OVERBUDGET"
+                        : progress >= 90
+                          ? "DANGER"
+                          : progress >= 70
+                            ? "WARNING"
+                            : "SAFE";
 
-                        <div className="flex shrink-0 items-center gap-3">
-                          <p className="text-sm font-bold text-zinc-950">
-                            {formatRupiah(budget.amount)}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteBudget(budget.id)}
-                            disabled={isSubmitting}
-                            className="rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
-                          >
-                            Delete
-                          </button>
+                    return (
+                      <article
+                        key={budget.id}
+                        className="rounded-xl border border-zinc-100 bg-white px-4 py-2.5 shadow-sm"
+                      >
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="truncate text-sm font-semibold text-zinc-950">
+                                {budget.budgetCategoryName}
+                              </h3>
+                              {budget.budgetCategoryHidden ? (
+                                <Badge tone="amber">Hidden</Badge>
+                              ) : null}
+                            </div>
+                            <p className="mt-1 text-xs text-zinc-500">
+                              {budget.userName}
+                            </p>
+                          </div>
+
+                          <div className="flex shrink-0 items-center gap-3">
+                            <div className="text-right">
+                              <p className="text-sm font-bold text-zinc-950">
+                                {formatRupiah(budget.amount)}
+                              </p>
+                              <p className="mt-1 text-xs text-zinc-500">
+                                {formatRupiah(budget.spent)} spent
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteBudget(budget.id)}
+                              disabled={isSubmitting}
+                              className="rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    </article>
-                  ))}
+                        <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-100">
+                          <div
+                            className={
+                              status === "OVERBUDGET"
+                                ? "h-full rounded-full bg-red-500"
+                                : status === "DANGER"
+                                  ? "h-full rounded-full bg-amber-500"
+                                  : status === "WARNING"
+                                    ? "h-full rounded-full bg-blue-500"
+                                    : "h-full rounded-full bg-emerald-500"
+                            }
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
+                          <span>
+                            {formatRupiah(
+                              remaining >= 0 ? remaining : Math.abs(remaining),
+                            )}
+                            {remaining >= 0 ? " remaining" : " over"}
+                          </span>
+                          {budget.paidEarlyAmount > 0 ? (
+                            <span className="rounded-full bg-blue-100 px-2 py-1 font-medium text-blue-700">
+                              Paid Early: {formatRupiah(budget.paidEarlyAmount)}
+                            </span>
+                          ) : null}
+                        </div>
+                      </article>
+                    );
+                  })}
                 </div>
               </div>
             </div>

@@ -4,6 +4,11 @@ import { prisma } from "@/lib/prisma";
 import type { PrismaTransactionClient } from "@/lib/prisma-transaction";
 import { getUnlockedAppUserForRequest } from "@/lib/secure-api-user";
 import { createWalletKey, validateWalletPayload } from "@/lib/wallets";
+import {
+  assertGlobalAllocationNotWorse,
+  getGlobalAllocationSummary,
+  GlobalAllocationError,
+} from "@/lib/global-allocation";
 
 function toWalletView(wallet: {
   id: string;
@@ -72,6 +77,10 @@ export async function POST(request: NextRequest) {
     where: { userId: auth.user.id },
   });
   const isDefault = result.data.isDefault || walletCount === 0;
+  const previousAllocation = await getGlobalAllocationSummary(
+    prisma,
+    auth.user.id,
+  );
 
   try {
     const wallet = await prisma.$transaction(
@@ -83,7 +92,7 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        return tx.wallet.create({
+        const createdWallet = await tx.wallet.create({
           data: {
             userId: auth.user.id,
             key,
@@ -94,11 +103,23 @@ export async function POST(request: NextRequest) {
             isDefault,
           },
         });
+
+        await assertGlobalAllocationNotWorse({
+          db: tx,
+          userId: auth.user.id,
+          previousShortfall: previousAllocation.shortfall,
+        });
+
+        return createdWallet;
       },
     );
 
     return NextResponse.json({ wallet }, { status: 201 });
   } catch (error) {
+    if (error instanceof GlobalAllocationError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
     console.error("Failed to create wallet:", error);
     return NextResponse.json(
       { error: "Wallet name is already used." },

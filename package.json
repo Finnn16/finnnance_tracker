@@ -8,10 +8,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:budgeting": "node --test --test-isolation=none tests/budget-calculations.test.mjs",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "node prisma/seed.js",
+    "db:backfill-budgetable": "node prisma/backfill-budgetable-income.js",
+    "db:backfill-transfer-period": "node prisma/backfill-transfer-budget-period.js",
     "db:studio": "prisma studio"
   },
   "dependencies": {

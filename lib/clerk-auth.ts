@@ -5,6 +5,7 @@ import { validateAndSyncUser } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { UserRole } from "@/lib/prisma-enums";
 import { prisma } from "@/lib/prisma";
+import { measureServerOperation } from "@/lib/server-performance";
 
 type AppUser = {
   id: string;
@@ -33,7 +34,9 @@ function getDisplayName(clerkUser: Awaited<ReturnType<typeof currentUser>>) {
 }
 
 async function resolveCurrentAppUser(): Promise<AppUserResult> {
-  const session = await auth();
+  const session = await measureServerOperation("auth.clerk-session", () =>
+    auth(),
+  );
 
   if (!session.userId) {
     return {
@@ -43,16 +46,18 @@ async function resolveCurrentAppUser(): Promise<AppUserResult> {
     };
   }
 
-  const linkedUser = await prisma.user.findUnique({
-    where: { clerkUserId: session.userId },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      role: true,
-      pinHash: true,
-    },
-  });
+  const linkedUser = await measureServerOperation("auth.user-lookup", () =>
+    prisma.user.findUnique({
+      where: { clerkUserId: session.userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        pinHash: true,
+      },
+    }),
+  );
 
   if (linkedUser) {
     if (!env.allowedEmails.includes(linkedUser.email.toLowerCase())) {
@@ -77,7 +82,9 @@ async function resolveCurrentAppUser(): Promise<AppUserResult> {
   }
 
   // A Clerk profile lookup is only needed once to safely link an allowed OAuth user.
-  const clerkUser = await currentUser();
+  const clerkUser = await measureServerOperation("auth.clerk-profile", () =>
+    currentUser(),
+  );
   const email = clerkUser?.primaryEmailAddress?.emailAddress?.toLowerCase();
 
   if (!email || !env.allowedEmails.includes(email)) {
@@ -88,10 +95,14 @@ async function resolveCurrentAppUser(): Promise<AppUserResult> {
     };
   }
 
-  const result = await validateAndSyncUser(
-    email,
-    getDisplayName(clerkUser) || email,
-    session.userId,
+  const result = await measureServerOperation(
+    "auth.initial-user-sync",
+    () =>
+      validateAndSyncUser(
+        email,
+        getDisplayName(clerkUser) || email,
+        session.userId,
+      ),
   );
 
   if (!result.isValid || !result.user) {

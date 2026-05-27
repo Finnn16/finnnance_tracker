@@ -3,11 +3,20 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   TransactionSource,
   TransactionType,
+  SavingLedgerType,
   UserRole,
 } from "@/lib/prisma-enums";
+import { Prisma } from "@/lib/generated/prisma/client";
 import type { PrismaTransactionClient } from "@/lib/prisma-transaction";
 import { prisma } from "@/lib/prisma";
 import { getUnlockedAppUserForRequest } from "@/lib/secure-api-user";
+import { normalizeMonthStart } from "@/lib/budgets";
+import { validateBudgetableIncomeReduction } from "@/lib/budgetable-income";
+import {
+  assertGlobalAllocationNotWorse,
+  getGlobalAllocationSummary,
+  GlobalAllocationError,
+} from "@/lib/global-allocation";
 import {
   applyTransactionBalanceEffect,
   TransactionBalanceEffect,
@@ -27,15 +36,33 @@ type TransactionWithRelations = {
   budgetCategoryId: string | null;
   type: TransactionType;
   amount: number;
+  savingsAmount: number;
+  budgetableAmount: number;
   description: string;
   transactionDate: Date;
+  budgetMonth: Date | null;
+  isPrepaid: boolean;
   createdAt: Date;
   user: { id: string; name: string; email: string };
   wallet: { id: string; name: string };
   transferToWallet: { id: string; name: string } | null;
   category: { id: string; name: string } | null;
   budgetCategory: { id: string; name: string } | null;
+  savingLedgers: {
+    id: string;
+    type: SavingLedgerType;
+    amount: Prisma.Decimal;
+    note: string | null;
+  }[];
 };
+
+function getSavingsNote(transaction: TransactionWithRelations) {
+  return (
+    transaction.savingLedgers.find(
+      (ledger) => ledger.type === SavingLedgerType.ADD,
+    )?.note || null
+  );
+}
 
 function toTransactionView(transaction: TransactionWithRelations) {
   return {
@@ -55,6 +82,14 @@ function toTransactionView(transaction: TransactionWithRelations) {
     amount: transaction.amount,
     description: transaction.description,
     transactionDate: transaction.transactionDate.toISOString(),
+    budgetMonth: transaction.budgetMonth?.toISOString() || null,
+    isPrepaid: transaction.isPrepaid,
+    isUnbudgetedExpense:
+      transaction.type === TransactionType.EXPENSE &&
+      transaction.budgetCategoryId === null,
+    savingsAmount: transaction.savingsAmount || null,
+    savingsNote: getSavingsNote(transaction),
+    budgetableAmount: transaction.budgetableAmount,
     createdAt: transaction.createdAt.toISOString(),
     canManage: true,
   };
@@ -68,19 +103,42 @@ function canManageTransaction(
   return role === UserRole.ADMIN || currentUserId === userId;
 }
 
+function getBudgetPeriod(transaction: {
+  budgetMonth: Date | null;
+  transactionDate: Date;
+}) {
+  return (
+    transaction.budgetMonth || normalizeMonthStart(transaction.transactionDate)!
+  );
+}
+
 async function validateTransactionReferences(
   userId: string,
   payload: TransactionBalanceEffect & {
     categoryId: string | null;
     budgetCategoryId: string | null;
+    budgetMonth: Date | null;
+    transferFeeBudgetCategoryId: string | null;
+    transferFeeBudgetMonth: Date | null;
   },
 ) {
   if (payload.type === TransactionType.TRANSFER) {
-    const [wallet, transferToWallet] = await Promise.all([
+    const [wallet, transferToWallet, feeBudgetAssignment] = await Promise.all([
       prisma.wallet.findFirst({
         where: { id: payload.walletId, userId },
         select: { id: true },
       }),
+      payload.transferFeeBudgetCategoryId && payload.transferFeeBudgetMonth
+        ? prisma.budget.findFirst({
+            where: {
+              userId,
+              month: payload.transferFeeBudgetMonth,
+              budgetCategoryId: payload.transferFeeBudgetCategoryId,
+              budgetCategory: { isHidden: false },
+            },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
       prisma.wallet.findFirst({
         where: { id: payload.transferToWalletId || "", userId },
         select: { id: true },
@@ -95,10 +153,14 @@ async function validateTransactionReferences(
       return "Destination wallet not found.";
     }
 
+    if (payload.transferFeeBudgetCategoryId && !feeBudgetAssignment) {
+      return "Budget category is not assigned for the selected admin fee budget period.";
+    }
+
     return null;
   }
 
-  const [wallet, category, budgetCategory] = await Promise.all([
+  const [wallet, category, budgetAssignment] = await Promise.all([
     prisma.wallet.findFirst({
       where: { id: payload.walletId, userId },
       select: { id: true },
@@ -112,12 +174,15 @@ async function validateTransactionReferences(
       },
       select: { id: true },
     }),
-    payload.type === TransactionType.EXPENSE && payload.budgetCategoryId
-      ? prisma.budgetCategory.findFirst({
+    payload.type === TransactionType.EXPENSE &&
+    payload.budgetCategoryId &&
+    payload.budgetMonth
+      ? prisma.budget.findFirst({
           where: {
-            id: payload.budgetCategoryId,
             userId,
-            isHidden: false,
+            month: payload.budgetMonth,
+            budgetCategoryId: payload.budgetCategoryId,
+            budgetCategory: { isHidden: false },
           },
           select: { id: true },
         })
@@ -135,9 +200,9 @@ async function validateTransactionReferences(
   if (
     payload.type === TransactionType.EXPENSE &&
     payload.budgetCategoryId &&
-    !budgetCategory
+    !budgetAssignment
   ) {
-    return "Budget category not found.";
+    return "Budget category is not assigned for the selected budget month.";
   }
 
   return null;
@@ -156,6 +221,9 @@ export async function PATCH(
   const { id } = await params;
   const existingTransaction = await prisma.transaction.findUnique({
     where: { id },
+    include: {
+      savingLedgers: { select: { id: true, type: true, amount: true, note: true } },
+    },
   });
 
   if (!existingTransaction) {
@@ -194,9 +262,49 @@ export async function PATCH(
     return NextResponse.json({ error: referenceError }, { status: 400 });
   }
 
-  const updatedTransaction = await prisma.$transaction(
-    async (tx: PrismaTransactionClient) => {
+  if (existingTransaction.type === TransactionType.INCOME) {
+    const existingBudgetPeriod = getBudgetPeriod(existingTransaction);
+    const replacementBudgetableAmount =
+      result.data.type === TransactionType.INCOME &&
+      result.data.budgetMonth?.getTime() === existingBudgetPeriod.getTime()
+        ? result.data.budgetableAmount
+        : 0;
+
+    if (replacementBudgetableAmount < existingTransaction.budgetableAmount) {
+      const incomeReductionError = await validateBudgetableIncomeReduction({
+        userId: existingTransaction.userId,
+        budgetMonth: existingBudgetPeriod,
+        excludedIncomeId: existingTransaction.id,
+        replacementBudgetableAmount,
+      });
+
+      if (incomeReductionError) {
+        return NextResponse.json(
+          { error: incomeReductionError },
+          { status: 400 },
+        );
+      }
+    }
+  }
+
+  const shouldAllowFundingShortfall =
+    existingTransaction.type === TransactionType.EXPENSE ||
+    result.data.type === TransactionType.EXPENSE;
+  const previousAllocation = shouldAllowFundingShortfall
+    ? null
+    : await getGlobalAllocationSummary(prisma, existingTransaction.userId);
+
+  try {
+    const updatedTransaction = await prisma.$transaction(
+      async (tx: PrismaTransactionClient) => {
       await applyTransactionBalanceEffect(tx, existingTransaction, -1);
+
+      await tx.savingLedger.deleteMany({
+        where: {
+          sourceTransactionId: id,
+          type: SavingLedgerType.ADD,
+        },
+      });
 
       const updated = await tx.transaction.update({
         where: { id },
@@ -207,8 +315,12 @@ export async function PATCH(
           budgetCategoryId: result.data.budgetCategoryId,
           type: result.data.type,
           amount: result.data.amount,
+          savingsAmount: result.data.savingsAmount,
+          budgetableAmount: result.data.budgetableAmount,
           description: result.data.description,
           transactionDate: result.data.transactionDate,
+          budgetMonth: result.data.budgetMonth,
+          isPrepaid: result.data.isPrepaid,
         },
         include: {
           user: { select: { id: true, name: true, email: true } },
@@ -216,18 +328,66 @@ export async function PATCH(
           transferToWallet: { select: { id: true, name: true } },
           category: { select: { id: true, name: true } },
           budgetCategory: { select: { id: true, name: true } },
+          savingLedgers: { select: { id: true, type: true, amount: true, note: true } },
         },
       });
 
       await applyTransactionBalanceEffect(tx, result.data, 1);
 
-      return updated;
-    },
-  );
+      let updatedRecord: TransactionWithRelations | null =
+        updated as unknown as TransactionWithRelations;
 
-  return NextResponse.json({
-    transaction: toTransactionView(updatedTransaction),
-  });
+      if (
+        result.data.type === TransactionType.INCOME &&
+        result.data.savingsAmount &&
+        result.data.savingsAmount > 0
+      ) {
+        await tx.savingLedger.create({
+          data: {
+            userId: existingTransaction.userId,
+            type: SavingLedgerType.ADD,
+            amount: new Prisma.Decimal(result.data.savingsAmount),
+            note: result.data.savingsNote || "Savings from income",
+            date: result.data.transactionDate,
+            sourceTransactionId: updated.id,
+          },
+        });
+
+        updatedRecord = (await tx.transaction.findUnique({
+          where: { id: updated.id },
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+            wallet: { select: { id: true, name: true } },
+            transferToWallet: { select: { id: true, name: true } },
+            category: { select: { id: true, name: true } },
+            budgetCategory: { select: { id: true, name: true } },
+            savingLedgers: { select: { id: true, type: true, amount: true, note: true } },
+          },
+        })) as unknown as TransactionWithRelations;
+      }
+
+        if (previousAllocation) {
+          await assertGlobalAllocationNotWorse({
+            db: tx,
+            userId: existingTransaction.userId,
+            previousShortfall: previousAllocation.shortfall,
+          });
+        }
+
+        return updatedRecord || updated;
+      },
+    );
+
+    return NextResponse.json({
+      transaction: toTransactionView(updatedTransaction),
+    });
+  } catch (error) {
+    if (error instanceof GlobalAllocationError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    throw error;
+  }
 }
 
 export async function DELETE(
@@ -265,27 +425,90 @@ export async function DELETE(
     );
   }
 
-  await prisma.$transaction(async (tx: PrismaTransactionClient) => {
-    await applyTransactionBalanceEffect(tx, existingTransaction, -1);
+  if (
+    existingTransaction.type === TransactionType.INCOME &&
+    existingTransaction.budgetableAmount > 0
+  ) {
+    const incomeReductionError = await validateBudgetableIncomeReduction({
+      userId: existingTransaction.userId,
+      budgetMonth: getBudgetPeriod(existingTransaction),
+      excludedIncomeId: existingTransaction.id,
+      replacementBudgetableAmount: 0,
+    });
 
-    if (existingTransaction.type === TransactionType.TRANSFER) {
-      const linkedFee = await tx.transaction.findFirst({
-        where: {
-          userId: existingTransaction.userId,
-          type: TransactionType.EXPENSE,
-          source: TransactionSource.SYSTEM,
-          rawMessage: `transfer_fee:${existingTransaction.id}`,
-        },
-      });
-
-      if (linkedFee) {
-        await applyTransactionBalanceEffect(tx, linkedFee, -1);
-        await tx.transaction.delete({ where: { id: linkedFee.id } });
-      }
+    if (incomeReductionError) {
+      return NextResponse.json({ error: incomeReductionError }, { status: 400 });
     }
+  }
 
-    await tx.transaction.delete({ where: { id } });
+  const linkedSavingsCount = await prisma.savingLedger.count({
+    where: {
+      sourceTransactionId: id,
+      ...(existingTransaction.type === TransactionType.INCOME
+        ? { type: { not: SavingLedgerType.ADD } }
+        : {}),
+    },
   });
 
-  return NextResponse.json({ ok: true });
+  if (linkedSavingsCount > 0) {
+    return NextResponse.json(
+      {
+        error:
+          "Transaction ini punya savings ledger yang harus diselesaikan sebelum delete.",
+      },
+      { status: 400 },
+    );
+  }
+
+  const previousAllocation = await getGlobalAllocationSummary(
+    prisma,
+    existingTransaction.userId,
+  );
+
+  try {
+    await prisma.$transaction(async (tx: PrismaTransactionClient) => {
+      await applyTransactionBalanceEffect(tx, existingTransaction, -1);
+
+      if (existingTransaction.type === TransactionType.INCOME) {
+        await tx.savingLedger.deleteMany({
+          where: {
+            sourceTransactionId: id,
+            type: SavingLedgerType.ADD,
+          },
+        });
+      }
+
+      if (existingTransaction.type === TransactionType.TRANSFER) {
+        const linkedFee = await tx.transaction.findFirst({
+          where: {
+            userId: existingTransaction.userId,
+            type: TransactionType.EXPENSE,
+            source: TransactionSource.SYSTEM,
+            rawMessage: `transfer_fee:${existingTransaction.id}`,
+          },
+        });
+
+        if (linkedFee) {
+          await applyTransactionBalanceEffect(tx, linkedFee, -1);
+          await tx.transaction.delete({ where: { id: linkedFee.id } });
+        }
+      }
+
+      await tx.transaction.delete({ where: { id } });
+
+      await assertGlobalAllocationNotWorse({
+        db: tx,
+        userId: existingTransaction.userId,
+        previousShortfall: previousAllocation.shortfall,
+      });
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    if (error instanceof GlobalAllocationError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    throw error;
+  }
 }

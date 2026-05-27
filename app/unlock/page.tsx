@@ -5,6 +5,7 @@ import { isAppUnlocked } from "@/lib/app-lock";
 import { getCurrentAppUser } from "@/lib/clerk-auth";
 import { prisma } from "@/lib/prisma";
 import { toSafeRedirectPath } from "@/lib/safe-redirect";
+import { measureServerOperation } from "@/lib/server-performance";
 
 export const dynamic = "force-dynamic";
 
@@ -21,16 +22,22 @@ export default async function UnlockPage({ searchParams }: UnlockPageProps) {
     redirect("/sign-in");
   }
 
-  const profile = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { pinHash: true },
-  });
+  const profile = await measureServerOperation("page /unlock.pin-profile", () =>
+    prisma.user.findUnique({
+      where: { id: user.id },
+      select: { pinHash: true },
+    }),
+  );
 
   if (!profile?.pinHash) {
     redirect(`/setup-pin?redirect=${encodeURIComponent(redirectTo)}`);
   }
 
-  if (await isAppUnlocked(user.id)) {
+  if (
+    await measureServerOperation("page /unlock.unlock-cookie", () =>
+      isAppUnlocked(user.id),
+    )
+  ) {
     redirect(redirectTo);
   }
 

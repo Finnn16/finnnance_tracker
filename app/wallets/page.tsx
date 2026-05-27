@@ -6,6 +6,7 @@ import { WalletsClient } from "@/components/WalletsClient";
 import { prisma } from "@/lib/prisma";
 import { WalletType } from "@/lib/prisma-enums";
 import { requireUnlockedAppUser } from "@/lib/secure-app-user";
+import { measureServerOperation } from "@/lib/server-performance";
 
 export const dynamic = "force-dynamic";
 
@@ -24,18 +25,20 @@ type WalletRow = {
 
 export default async function WalletsPage() {
   const user = await requireUnlockedAppUser("/wallets");
-  const wallets = await prisma.wallet.findMany({
-    where: { userId: user.id },
-    include: {
-      _count: {
-        select: {
-          transactions: true,
-          transferTransactions: true,
+  const wallets = await measureServerOperation("page /wallets.data", () =>
+    prisma.wallet.findMany({
+      where: { userId: user.id },
+      include: {
+        _count: {
+          select: {
+            transactions: true,
+            transferTransactions: true,
+          },
         },
       },
-    },
-    orderBy: [{ isDefault: "desc" }, { name: "asc" }],
-  });
+      orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+    }),
+  );
 
   const walletViews = wallets.map((wallet: WalletRow) => ({
     id: wallet.id,

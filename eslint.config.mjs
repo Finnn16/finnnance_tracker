@@ -13,6 +13,8 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "prisma/seed.js",
+    "prisma/backfill-budgetable-income.js",
+    "prisma/backfill-transfer-budget-period.js",
   ]),
 ]);
 

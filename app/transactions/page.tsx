@@ -3,16 +3,18 @@ import Link from "next/link";
 
 import { AppLockButton } from "@/components/AppLockButton";
 import { TransactionsClient } from "@/components/TransactionsClient";
-import { UserRole } from "@/lib/prisma-enums";
+import { monthInputValue } from "@/lib/budgets";
+import { TransactionType, UserRole } from "@/lib/prisma-enums";
 import { prisma } from "@/lib/prisma";
 import { requireUnlockedAppUser } from "@/lib/secure-app-user";
+import { measureServerOperation } from "@/lib/server-performance";
 
 export const dynamic = "force-dynamic";
 
 export default async function TransactionsPage() {
   const user = await requireUnlockedAppUser("/transactions");
-  const [transactions, wallets, categories, budgetCategories] =
-    await Promise.all([
+  const [transactions, wallets, categories, budgetCategories, budgetExpenses] =
+    await measureServerOperation("page /transactions.data", () => Promise.all([
       prisma.transaction.findMany({
         include: {
           user: { select: { id: true, name: true, email: true } },
@@ -20,6 +22,11 @@ export default async function TransactionsPage() {
           transferToWallet: { select: { id: true, name: true } },
           category: { select: { id: true, name: true } },
           budgetCategory: { select: { id: true, name: true } },
+          savingLedgers: {
+            where: { type: "ADD" },
+            select: { note: true },
+            take: 1,
+          },
         },
         orderBy: [{ transactionDate: "desc" }, { createdAt: "desc" }],
         take: 100,
@@ -36,10 +43,41 @@ export default async function TransactionsPage() {
       }),
       prisma.budgetCategory.findMany({
         where: { userId: user.id, isHidden: false },
-        select: { id: true, name: true },
+        select: {
+          id: true,
+          name: true,
+          budgets: { select: { month: true, amount: true } },
+        },
         orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       }),
-    ]);
+      prisma.transaction.findMany({
+        where: {
+          userId: user.id,
+          type: TransactionType.EXPENSE,
+          budgetCategoryId: { not: null },
+        },
+        select: {
+          budgetCategoryId: true,
+          budgetMonth: true,
+          transactionDate: true,
+          amount: true,
+        },
+      }),
+    ]));
+
+  const spentByBudgetKey = budgetExpenses.reduce<Record<string, number>>(
+    (accumulator, transaction) => {
+      const period = monthInputValue(
+        transaction.budgetMonth || transaction.transactionDate,
+      );
+      const key = `${transaction.budgetCategoryId}|${period}`;
+
+      accumulator[key] = (accumulator[key] || 0) + transaction.amount;
+
+      return accumulator;
+    },
+    {},
+  );
 
   const transactionViews = transactions.map(
     (transaction: (typeof transactions)[number]) => ({
@@ -59,6 +97,14 @@ export default async function TransactionsPage() {
       amount: transaction.amount,
       description: transaction.description,
       transactionDate: transaction.transactionDate.toISOString(),
+      budgetMonth: transaction.budgetMonth?.toISOString() || null,
+      isPrepaid: transaction.isPrepaid,
+      isUnbudgetedExpense:
+        transaction.type === TransactionType.EXPENSE &&
+        transaction.budgetCategoryId === null,
+      savingsAmount: transaction.savingsAmount || null,
+      savingsNote: transaction.savingLedgers[0]?.note || null,
+      budgetableAmount: transaction.budgetableAmount,
       canManage: user.role === UserRole.ADMIN || user.id === transaction.userId,
     }),
   );
@@ -91,7 +137,19 @@ export default async function TransactionsPage() {
           initialTransactions={transactionViews}
           wallets={wallets}
           categories={categories}
-          budgetCategories={budgetCategories}
+          budgetCategories={budgetCategories.map((category) => ({
+            id: category.id,
+            name: category.name,
+            periods: category.budgets.map((budget) => {
+              const month = monthInputValue(budget.month);
+
+              return {
+                month,
+                amount: budget.amount,
+                spent: spentByBudgetKey[`${category.id}|${month}`] || 0,
+              };
+            }),
+          }))}
         />
       </main>
     </div>

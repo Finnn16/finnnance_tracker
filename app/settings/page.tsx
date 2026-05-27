@@ -6,13 +6,14 @@ import { SettingsClient } from "@/components/SettingsClient";
 import { UserRole } from "@/lib/prisma-enums";
 import { prisma } from "@/lib/prisma";
 import { requireUnlockedAppUser } from "@/lib/secure-app-user";
+import { measureServerOperation } from "@/lib/server-performance";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
   const user = await requireUnlockedAppUser("/settings");
   const [users, categories, categoryGroups, budgetCategories] =
-    await Promise.all([
+    await measureServerOperation("page /settings.data", () => Promise.all([
       prisma.user.findMany({
         select: { id: true, name: true, email: true },
         orderBy: { name: "asc" },
@@ -44,7 +45,7 @@ export default async function SettingsPage() {
         },
         orderBy: [{ isHidden: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
       }),
-    ]);
+    ]));
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-100">
@@ -104,7 +105,9 @@ export default async function SettingsPage() {
                 transactionCount: category._count.transactions,
               }),
             )}
-            availableToBudgetByUser={{} as Record<string, number>}
+            budgetableIncomeByPeriod={{} as Record<string, number>}
+            unbudgetedSpentByPeriod={{} as Record<string, number>}
+            fundingShortfallByUser={{} as Record<string, number>}
             users={users}
             currentUserId={user.id}
             currentUserRole={user.role}

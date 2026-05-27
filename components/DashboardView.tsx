@@ -2,10 +2,11 @@
 
 import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { AppLockButton } from "@/components/AppLockButton";
-import { DashboardData } from "@/lib/dashboard";
+import type { DashboardData } from "@/lib/dashboard";
 import { TransactionType } from "@/lib/prisma-enums";
 import { formatRupiah } from "@/lib/money";
 
@@ -51,13 +52,13 @@ type BudgetItemView = {
 };
 
 type BudgetView = {
+  budgetableIncome: number;
   availableToBudget: number;
-  budgetedAmount: number;
-  unallocatedAmount: number;
-  overplannedAmount: number;
-  status: "SAFE" | "OVERPLANNED";
+  status: "SAFE" | "OVERPLANNED" | "UNDERFUNDED";
   totalBudget: number;
   spent: number;
+  unbudgetedSpent: number;
+  fundingShortfall: number;
   usedPercentage: number;
   remaining: number;
   items: BudgetItemView[];
@@ -88,10 +89,13 @@ type AiInsightRequest = {
     transactionCount: number;
   };
   budget: {
+    budgetableIncome: number;
     availableToBudget: number;
-    budgetedAmount: number;
-    unallocatedAmount: number;
-    overplannedAmount: number;
+    totalBudget: number;
+    spent: number;
+    unbudgetedSpent: number;
+    fundingShortfall: number;
+    remaining: number;
     status: DashboardData["budget"]["status"];
     usedPercentage: number;
   };
@@ -161,6 +165,7 @@ const navItems = [
   { label: "Dashboard", href: "/" },
   { label: "Transactions", href: "/transactions" },
   { label: "Wallets", href: "/wallets" },
+  { label: "Savings", href: "/savings" },
   { label: "Budget", href: "/budgets" },
   { label: "AI Assistant", href: "/" },
   { label: "Settings", href: "/settings" },
@@ -195,10 +200,17 @@ function getInitialWidgets() {
 export function DashboardView({
   user,
   data,
+  selectedMonth,
+  selectedYear,
 }: {
   user: CurrentUser;
   data: DashboardData;
+  selectedMonth: string;
+  selectedYear: string;
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [widgets, setWidgets] = useState(getInitialWidgets);
   const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
   const [aiInsight, setAiInsight] = useState<DashboardAiInsight>(
@@ -212,10 +224,13 @@ export function DashboardView({
       periodLabel: data.periodLabel,
       summary: data.summary,
       budget: {
+        budgetableIncome: data.budget.budgetableIncome,
         availableToBudget: data.budget.availableToBudget,
-        budgetedAmount: data.budget.budgetedAmount,
-        unallocatedAmount: data.budget.unallocatedAmount,
-        overplannedAmount: data.budget.overplannedAmount,
+        totalBudget: data.budget.totalBudget,
+        spent: data.budget.spent,
+        unbudgetedSpent: data.budget.unbudgetedSpent,
+        fundingShortfall: data.budget.fundingShortfall,
+        remaining: data.budget.remaining,
         status: data.budget.status,
         usedPercentage: data.budget.usedPercentage,
       },
@@ -291,6 +306,31 @@ export function DashboardView({
     [widgets],
   );
 
+  const monthOptions = useMemo(() => {
+    return Array.from({ length: 12 }, (_, index) => {
+      const month = index + 1;
+
+      return {
+        value: String(month).padStart(2, "0"),
+        label: new Intl.DateTimeFormat("id-ID", {
+          month: "long",
+        }).format(new Date(2000, index, 1)),
+      };
+    });
+  }, []);
+
+  const updateMonthYear = (nextMonth: string, nextYear: string) => {
+    const nextParams = new URLSearchParams(searchParams.toString());
+
+    nextParams.set("month", nextMonth);
+    nextParams.set("year", nextYear);
+
+    const query = nextParams.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    });
+  };
+
   const updateWidgetVisibility = (widgetId: string, visible: boolean) => {
     const nextWidgets = widgets.map((widget) =>
       widget.id === widgetId ? { ...widget, visible } : widget,
@@ -318,6 +358,34 @@ export function DashboardView({
             </div>
 
             <div className="flex items-center gap-2">
+              <label className="hidden items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600 shadow-sm sm:flex">
+                <span className="whitespace-nowrap text-zinc-400">Bulan</span>
+                <select
+                  value={selectedMonth}
+                  onChange={(event) =>
+                    updateMonthYear(event.target.value, selectedYear)
+                  }
+                  className="min-w-0 bg-transparent text-sm font-medium text-zinc-700 outline-none"
+                >
+                  {monthOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="hidden items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600 shadow-sm sm:flex">
+                <span className="whitespace-nowrap text-zinc-400">Tahun</span>
+                <input
+                  value={selectedYear}
+                  onChange={(event) =>
+                    updateMonthYear(selectedMonth, event.target.value)
+                  }
+                  type="number"
+                  inputMode="numeric"
+                  className="w-24 bg-transparent text-sm font-medium text-zinc-700 outline-none"
+                />
+              </label>
               <div className="hidden rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600 shadow-sm sm:block">
                 {data.periodLabel}
               </div>
@@ -449,8 +517,8 @@ function DesktopSidebar() {
 
 function MobileNav() {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-30 grid grid-cols-3 border-t border-zinc-200 bg-white px-2 py-2 lg:hidden">
-      {navItems.slice(0, 3).map((item) => (
+    <nav className="fixed bottom-0 left-0 right-0 z-30 grid grid-cols-4 border-t border-zinc-200 bg-white px-2 py-2 lg:hidden">
+      {navItems.slice(0, 4).map((item) => (
         <Link
           key={item.label}
           href={item.href}
@@ -598,7 +666,7 @@ function SummaryMetricCard({
 
 function MonthlySnapshot({ data }: { data: DashboardData }) {
   const isHealthy = data.summary.netCashflow >= 0;
-  const budgetTone = data.budget.overplannedAmount > 0 ? "red" : "green";
+  const budgetTone = data.budget.status === "SAFE" ? "green" : "red";
 
   const metrics = [
     {
@@ -618,6 +686,18 @@ function MonthlySnapshot({ data }: { data: DashboardData }) {
       value: formatRupiah(data.summary.totalBalance),
       detail: `${data.wallets.length} wallet aktif`,
       tone: "blue" as const,
+    },
+    {
+      label: "Savings",
+      value: formatRupiah(data.savings.currentBalance),
+      detail: "Reserved money",
+      tone: "blue" as const,
+    },
+    {
+      label: "Budgetable Income",
+      value: formatRupiah(data.budget.budgetableIncome),
+      detail: "Budget period",
+      tone: "green" as const,
     },
     {
       label: "Budget Used",
@@ -660,7 +740,7 @@ function MonthlySnapshot({ data }: { data: DashboardData }) {
         </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {metrics.map((metric) => (
           <SummaryMetricCard
             key={metric.label}
@@ -682,7 +762,11 @@ function MonthlySnapshot({ data }: { data: DashboardData }) {
                 : "bg-red-100 text-red-700"
             }`}
           >
-            {data.budget.status === "OVERPLANNED" ? "Overplanned" : "Safe"}
+            {data.budget.status === "UNDERFUNDED"
+              ? "Underfunded"
+              : data.budget.status === "OVERPLANNED"
+                ? "Overplanned"
+                : "Safe"}
           </span>
         </div>
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-100">
@@ -694,9 +778,26 @@ function MonthlySnapshot({ data }: { data: DashboardData }) {
           />
         </div>
         <div className="mt-3 grid gap-2 text-xs text-zinc-500 sm:grid-cols-3">
-          <span>{formatRupiah(data.budget.availableToBudget)} available</span>
-          <span>{formatRupiah(data.budget.budgetedAmount)} budgeted</span>
-          <span>{formatRupiah(data.budget.unallocatedAmount)} unallocated</span>
+          <span>
+            {formatRupiah(data.budget.budgetableIncome)} budgetable income
+          </span>
+          <span>{formatRupiah(data.budget.totalBudget)} budget set</span>
+          <span>
+            {formatRupiah(data.budget.availableToBudget)} available to budget
+          </span>
+        </div>
+        {data.budget.fundingShortfall > 0 ? (
+          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+            Funding shortfall: {formatRupiah(data.budget.fundingShortfall)}.
+            Sebagian savings atau budget aktif belum ditopang saldo wallet.
+          </p>
+        ) : null}
+        <div className="mt-3 grid gap-2 text-xs text-zinc-500 sm:grid-cols-3">
+          <span>{formatRupiah(data.savings.addedThisMonth)} added savings</span>
+          <span>{formatRupiah(data.savings.usedThisMonth)} used savings</span>
+          <span>
+            {formatRupiah(data.savings.adjustmentThisMonth)} adjustments
+          </span>
         </div>
       </div>
 
@@ -772,7 +873,7 @@ function WalletBalances({ wallets }: { wallets: WalletBalanceView[] }) {
 function BudgetProgress({ budget }: { budget: BudgetView }) {
   const usage = budget.usedPercentage;
   const statusTone =
-    budget.status === "OVERPLANNED"
+    budget.status !== "SAFE"
       ? "border-red-200 bg-red-50 text-red-700"
       : "border-emerald-200 bg-emerald-50 text-emerald-700";
 
@@ -820,29 +921,47 @@ function BudgetProgress({ budget }: { budget: BudgetView }) {
           style={{ width: `${usage}%` }}
         />
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 sm:text-sm">
+      <div className="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 sm:text-sm">
         <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
-          <p className="text-zinc-500">Available</p>
+          <p className="text-zinc-500">Budgetable Income</p>
+          <p className="mt-1 font-semibold text-zinc-950">
+            {formatRupiah(budget.budgetableIncome)}
+          </p>
+        </div>
+        <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
+          <p className="text-zinc-500">Available to Budget</p>
           <p className="mt-1 font-semibold text-zinc-950">
             {formatRupiah(budget.availableToBudget)}
           </p>
         </div>
         <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
-          <p className="text-zinc-500">Budgeted</p>
+          <p className="text-zinc-500">Total Budget Set</p>
           <p className="mt-1 font-semibold text-zinc-950">
-            {formatRupiah(budget.budgetedAmount)}
+            {formatRupiah(budget.totalBudget)}
           </p>
         </div>
         <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
-          <p className="text-zinc-500">Unallocated</p>
+          <p className="text-zinc-500">Budgeted Spent</p>
           <p className="mt-1 font-semibold text-zinc-950">
-            {formatRupiah(budget.unallocatedAmount)}
+            {formatRupiah(budget.spent)}
           </p>
         </div>
         <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
-          <p className="text-zinc-500">Overplanned</p>
+          <p className="text-zinc-500">Remaining Budget</p>
           <p className="mt-1 font-semibold text-zinc-950">
-            {formatRupiah(budget.overplannedAmount)}
+            {formatRupiah(budget.remaining)}
+          </p>
+        </div>
+        <div className="rounded-xl bg-amber-50 px-3 py-2 ring-1 ring-amber-200">
+          <p className="text-amber-700">Unbudgeted Expense</p>
+          <p className="mt-1 font-semibold text-amber-800">
+            {formatRupiah(budget.unbudgetedSpent)}
+          </p>
+        </div>
+        <div className="rounded-xl bg-red-50 px-3 py-2 ring-1 ring-red-200">
+          <p className="text-red-700">Funding Shortfall</p>
+          <p className="mt-1 font-semibold text-red-800">
+            {formatRupiah(budget.fundingShortfall)}
           </p>
         </div>
       </div>
