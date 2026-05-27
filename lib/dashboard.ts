@@ -170,7 +170,10 @@ type SavingsLedgerRow = {
   };
 };
 
-export async function getDashboardData(selectedMonth?: string) {
+export async function getDashboardData(
+  selectedMonth?: string,
+  selectedUserId?: string | null,
+) {
   const now = new Date();
   const parsedMonth = parseMonthKey(selectedMonth);
   const monthStart = parsedMonth
@@ -182,6 +185,7 @@ export async function getDashboardData(selectedMonth?: string) {
   const chartStart = startOfDay(new Date(now));
   chartStart.setDate(chartStart.getDate() - 6);
   const activityStart = chartStart < monthStart ? chartStart : monthStart;
+  const userScope = selectedUserId ? { userId: selectedUserId } : {};
 
   const [
     wallets,
@@ -194,6 +198,7 @@ export async function getDashboardData(selectedMonth?: string) {
     globalAllocation,
   ] = (await Promise.all([
     prisma.wallet.findMany({
+      where: userScope,
       include: { user: { select: { name: true } } },
       orderBy: [
         { user: { name: "asc" } },
@@ -203,6 +208,7 @@ export async function getDashboardData(selectedMonth?: string) {
     }),
     prisma.transaction.findMany({
       where: {
+        ...userScope,
         transactionDate: {
           gte: activityStart,
           lt: nextMonthStart,
@@ -218,6 +224,7 @@ export async function getDashboardData(selectedMonth?: string) {
     }),
     prisma.transaction.findMany({
       where: {
+        ...userScope,
         transactionDate: {
           gte: monthStart,
           lt: nextMonthStart,
@@ -234,7 +241,10 @@ export async function getDashboardData(selectedMonth?: string) {
       take: 8,
     }),
     prisma.budget.findMany({
-      where: { month: { gte: monthStart, lt: nextMonthStart } },
+      where: {
+        ...userScope,
+        month: { gte: monthStart, lt: nextMonthStart },
+      },
       include: {
         user: { select: { name: true } },
         budgetCategory: { select: { id: true, name: true } },
@@ -243,6 +253,7 @@ export async function getDashboardData(selectedMonth?: string) {
     }),
     prisma.transaction.findMany({
       where: {
+        ...userScope,
         type: TransactionType.EXPENSE,
         OR: [
           {
@@ -266,16 +277,18 @@ export async function getDashboardData(selectedMonth?: string) {
     }),
     prisma.transaction.aggregate({
       where: {
+        ...userScope,
         type: TransactionType.INCOME,
         budgetMonth: { gte: monthStart, lt: nextMonthStart },
       },
       _sum: { budgetableAmount: true },
     }),
     prisma.savingLedger.findMany({
+      where: userScope,
       include: { user: { select: { name: true, email: true } } },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     }),
-    getGlobalAllocationSummary(prisma),
+    getGlobalAllocationSummary(prisma, selectedUserId || undefined),
   ])) as [
     DashboardWalletRow[],
     DashboardTransactionRow[],

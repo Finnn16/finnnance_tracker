@@ -609,6 +609,7 @@ function TransactionForm({
   onCancel?: () => void;
   originalTransaction?: TransactionView;
 }) {
+  const [isAmountCalculatorOpen, setIsAmountCalculatorOpen] = useState(false);
   const selectableCategories = categories.filter(
     (category) => category.type === form.type,
   );
@@ -695,20 +696,39 @@ function TransactionForm({
         <label className="mb-2 block text-sm font-medium text-zinc-700">
           Amount
         </label>
-        <input
-          value={form.amount}
-          onChange={(event) =>
-            onChange({
-              ...form,
-              amount: normalizeAmountInput(event.target.value),
-            })
-          }
-          inputMode="numeric"
-          className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-          placeholder="Rp 30.000"
-          required
-        />
+        <div className="flex gap-2">
+          <input
+            value={form.amount}
+            onClick={() => setIsAmountCalculatorOpen(true)}
+            readOnly
+            inputMode="none"
+            className="w-full cursor-pointer rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            placeholder="Tap untuk hitung amount"
+            required
+          />
+          <button
+            type="button"
+            onClick={() => setIsAmountCalculatorOpen(true)}
+            className="shrink-0 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
+          >
+            Hitung
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-zinc-500">
+          Jumlahkan beberapa barang langsung di sini.
+        </p>
       </div>
+
+      {isAmountCalculatorOpen ? (
+        <AmountCalculator
+          initialAmount={parsedAmount}
+          onApply={(amount) => {
+            onChange({ ...form, amount: formatAmountInput(amount) });
+            setIsAmountCalculatorOpen(false);
+          }}
+          onClose={() => setIsAmountCalculatorOpen(false)}
+        />
+      ) : null}
 
       {form.type === TransactionType.INCOME ? (
         <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4">
@@ -1231,5 +1251,195 @@ function TransactionForm({
         ) : null}
       </div>
     </form>
+  );
+}
+
+type AmountCalculatorOperator = "+" | "-" | "x";
+
+type AmountCalculatorTerm = {
+  operator: AmountCalculatorOperator;
+  amount: number;
+};
+
+function calculateTermsTotal(terms: AmountCalculatorTerm[]) {
+  return terms.reduce((total, term, index) => {
+    if (index === 0) {
+      return term.operator === "-" ? -term.amount : term.amount;
+    }
+
+    if (term.operator === "+") {
+      return total + term.amount;
+    }
+
+    if (term.operator === "-") {
+      return total - term.amount;
+    }
+
+    return total * term.amount;
+  }, 0);
+}
+
+function AmountCalculator({
+  initialAmount,
+  onApply,
+  onClose,
+}: {
+  initialAmount: number;
+  onApply: (amount: number) => void;
+  onClose: () => void;
+}) {
+  const [terms, setTerms] = useState<AmountCalculatorTerm[]>([]);
+  const [operator, setOperator] = useState<AmountCalculatorOperator>("+");
+  const [entry, setEntry] = useState(
+    initialAmount > 0 ? String(initialAmount) : "",
+  );
+  const currentTerms =
+    entry === ""
+      ? terms
+      : [...terms, { operator, amount: Number(entry) }];
+  const total = calculateTermsTotal(currentTerms);
+
+  const appendDigits = (digits: string) => {
+    setEntry((current) => {
+      const nextValue = `${current}${digits}`.replace(/^0+(?=\d)/, "");
+
+      return nextValue.slice(0, 15);
+    });
+  };
+
+  const selectOperator = (nextOperator: AmountCalculatorOperator) => {
+    if (entry !== "") {
+      setTerms(currentTerms);
+      setEntry("");
+    }
+
+    setOperator(nextOperator);
+  };
+
+  const clear = () => {
+    setTerms([]);
+    setOperator("+");
+    setEntry("");
+  };
+
+  const expression = currentTerms
+    .map((term, index) => {
+      const prefix =
+        index === 0 && term.operator === "+" ? "" : `${term.operator} `;
+
+      return `${prefix}${formatAmountInput(term.amount)}`;
+    })
+    .join(" ");
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/40 p-3 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Amount calculator"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-zinc-950">
+              Kalkulator Amount
+            </h3>
+            <p className="text-xs text-zinc-500">
+              Hitung item secara berurutan.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-500 hover:bg-zinc-100"
+          >
+            Tutup
+          </button>
+        </div>
+
+        <div className="mt-4 rounded-xl bg-zinc-950 px-4 py-3 text-right text-white">
+          <p className="min-h-5 truncate text-xs text-zinc-400">
+            {expression || "Masukkan harga barang"}
+          </p>
+          <p className="mt-2 text-2xl font-semibold">{formatRupiah(total)}</p>
+        </div>
+
+        <div className="mt-4 grid grid-cols-4 gap-2">
+          {["7", "8", "9"].map((digit) => (
+            <CalculatorButton key={digit} onClick={() => appendDigits(digit)}>
+              {digit}
+            </CalculatorButton>
+          ))}
+          <CalculatorButton accent onClick={() => selectOperator("+")}>
+            +
+          </CalculatorButton>
+          {["4", "5", "6"].map((digit) => (
+            <CalculatorButton key={digit} onClick={() => appendDigits(digit)}>
+              {digit}
+            </CalculatorButton>
+          ))}
+          <CalculatorButton accent onClick={() => selectOperator("-")}>
+            -
+          </CalculatorButton>
+          {["1", "2", "3"].map((digit) => (
+            <CalculatorButton key={digit} onClick={() => appendDigits(digit)}>
+              {digit}
+            </CalculatorButton>
+          ))}
+          <CalculatorButton accent onClick={() => selectOperator("x")}>
+            x
+          </CalculatorButton>
+          <CalculatorButton onClick={() => appendDigits("000")}>
+            000
+          </CalculatorButton>
+          <CalculatorButton onClick={() => appendDigits("0")}>
+            0
+          </CalculatorButton>
+          <CalculatorButton
+            onClick={() => setEntry((current) => current.slice(0, -1))}
+          >
+            Hapus
+          </CalculatorButton>
+          <CalculatorButton onClick={clear}>C</CalculatorButton>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onApply(total)}
+          disabled={total <= 0}
+          className="mt-4 w-full rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Gunakan Total {total > 0 ? formatRupiah(total) : ""}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CalculatorButton({
+  children,
+  onClick,
+  accent = false,
+}: {
+  children: string;
+  onClick: () => void;
+  accent?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-xl px-2 py-4 text-base font-semibold transition ${
+        accent
+          ? "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+          : "bg-zinc-100 text-zinc-900 hover:bg-zinc-200"
+      }`}
+    >
+      {children}
+    </button>
   );
 }

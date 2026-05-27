@@ -232,7 +232,7 @@ async function main() {
 
     const users = [
       await upsertUser(client, adminEmail, "ADMIN"),
-      await upsertUser(client, userEmail, "USER"),
+      await upsertUser(client, userEmail, "ADMIN"),
     ];
 
     await seedCategoryGroups(

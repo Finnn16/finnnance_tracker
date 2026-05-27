@@ -17,6 +17,11 @@ type CurrentUser = {
   role: string;
 };
 
+type DashboardOwnerOption = {
+  id: string;
+  name: string;
+};
+
 type DashboardWidget = {
   id: string;
   title: string;
@@ -202,11 +207,17 @@ export function DashboardView({
   data,
   selectedMonth,
   selectedYear,
+  selectedOwner,
+  ownerOptions,
+  canViewCombined,
 }: {
   user: CurrentUser;
   data: DashboardData;
   selectedMonth: string;
   selectedYear: string;
+  selectedOwner: string;
+  ownerOptions: DashboardOwnerOption[];
+  canViewCombined: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -331,6 +342,21 @@ export function DashboardView({
     });
   };
 
+  const updateOwner = (nextOwner: string) => {
+    const nextParams = new URLSearchParams(searchParams.toString());
+
+    if (nextOwner === user.id) {
+      nextParams.delete("owner");
+    } else {
+      nextParams.set("owner", nextOwner);
+    }
+
+    const query = nextParams.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    });
+  };
+
   const updateWidgetVisibility = (widgetId: string, visible: boolean) => {
     const nextWidgets = widgets.map((widget) =>
       widget.id === widgetId ? { ...widget, visible } : widget,
@@ -357,7 +383,26 @@ export function DashboardView({
               </h1>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <label className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600 shadow-sm">
+                <span className="hidden whitespace-nowrap text-zinc-400 xl:inline">
+                  User
+                </span>
+                <select
+                  value={selectedOwner}
+                  onChange={(event) => updateOwner(event.target.value)}
+                  className="max-w-36 min-w-0 bg-transparent text-sm font-medium text-zinc-700 outline-none"
+                >
+                  {ownerOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.id === user.id ? `Saya - ${option.name}` : option.name}
+                    </option>
+                  ))}
+                  {canViewCombined ? (
+                    <option value="all">Gabungan</option>
+                  ) : null}
+                </select>
+              </label>
               <label className="hidden items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600 shadow-sm sm:flex">
                 <span className="whitespace-nowrap text-zinc-400">Bulan</span>
                 <select

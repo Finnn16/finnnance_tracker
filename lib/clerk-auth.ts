@@ -1,7 +1,7 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
-import { validateAndSyncUser } from "@/lib/auth";
+import { hasSharedAdminAccess, validateAndSyncUser } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { UserRole } from "@/lib/prisma-enums";
 import { prisma } from "@/lib/prisma";
@@ -68,13 +68,31 @@ async function resolveCurrentAppUser(): Promise<AppUserResult> {
       };
     }
 
+    const appUser =
+      hasSharedAdminAccess(linkedUser.email) &&
+      linkedUser.role !== UserRole.ADMIN
+        ? await measureServerOperation("auth.promote-shared-admin", () =>
+            prisma.user.update({
+              where: { id: linkedUser.id },
+              data: { role: UserRole.ADMIN },
+              select: {
+                id: true,
+                email: true,
+                name: true,
+                role: true,
+                pinHash: true,
+              },
+            }),
+          )
+        : linkedUser;
+
     return {
       user: {
-        id: linkedUser.id,
-        email: linkedUser.email,
-        name: linkedUser.name,
-        role: linkedUser.role,
-        hasPin: Boolean(linkedUser.pinHash),
+        id: appUser.id,
+        email: appUser.email,
+        name: appUser.name,
+        role: appUser.role,
+        hasPin: Boolean(appUser.pinHash),
       },
       status: 200,
       error: null,

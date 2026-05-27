@@ -14,6 +14,14 @@ export interface AuthValidationResult {
   };
 }
 
+export function hasSharedAdminAccess(email: string) {
+  const normalizedEmail = email.toLowerCase();
+
+  return (
+    normalizedEmail === env.adminEmail || normalizedEmail === env.userEmail
+  );
+}
+
 /**
  * Validate and sync an OAuth user with the app database.
  * Checks email against allowlist and creates/updates user profile.
@@ -42,9 +50,9 @@ export async function validateAndSyncUser(
       };
     }
 
-    // Determine user role based on email
+    // The two configured household accounts have identical administration rights.
     const role: UserRole =
-      normalizedEmail === env.adminEmail ? UserRole.ADMIN : UserRole.USER;
+      hasSharedAdminAccess(normalizedEmail) ? UserRole.ADMIN : UserRole.USER;
 
     const displayName = name || "User";
     const existingUser = await prisma.user.findUnique({
