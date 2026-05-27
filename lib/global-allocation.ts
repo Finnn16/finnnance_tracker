@@ -1,6 +1,7 @@
 import {
   calculateGlobalAllocationSummary,
 } from "@/lib/budget-calculations";
+import { monthInputValue, normalizeMonthStart } from "@/lib/budgets";
 import { SavingLedgerType, TransactionType } from "@/lib/prisma-enums";
 import type { PrismaTransactionClient } from "@/lib/prisma-transaction";
 
@@ -13,7 +14,7 @@ function periodCategoryKey(
   month: Date,
   budgetCategoryId: string | null,
 ) {
-  return `${month.getFullYear()}-${month.getMonth()}|${budgetCategoryId || ""}`;
+  return `${monthInputValue(month)}|${budgetCategoryId || ""}`;
 }
 
 function expenseBudgetPeriod(transaction: {
@@ -22,11 +23,7 @@ function expenseBudgetPeriod(transaction: {
 }) {
   return (
     transaction.budgetMonth ||
-    new Date(
-      transaction.transactionDate.getFullYear(),
-      transaction.transactionDate.getMonth(),
-      1,
-    )
+    normalizeMonthStart(transaction.transactionDate)!
   );
 }
 

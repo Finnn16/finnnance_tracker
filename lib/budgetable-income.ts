@@ -1,4 +1,4 @@
-import { calculateBudgetPeriodSummary } from "@/lib/budgets";
+import { budgetMonthRange, calculateBudgetPeriodSummary } from "@/lib/budgets";
 import { TransactionType } from "@/lib/prisma-enums";
 import { prisma } from "@/lib/prisma";
 
@@ -13,16 +13,17 @@ export async function validateBudgetableIncomeReduction({
   excludedIncomeId: string;
   replacementBudgetableAmount: number;
 }) {
+  const monthRange = budgetMonthRange(budgetMonth)!;
   const [budgets, remainingIncome] = await Promise.all([
     prisma.budget.aggregate({
-      where: { userId, month: budgetMonth },
+      where: { userId, month: monthRange },
       _sum: { amount: true },
     }),
     prisma.transaction.aggregate({
       where: {
         userId,
         type: TransactionType.INCOME,
-        budgetMonth,
+        budgetMonth: monthRange,
         id: { not: excludedIncomeId },
       },
       _sum: { budgetableAmount: true },

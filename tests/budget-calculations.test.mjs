@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  budgetMonthRange,
   calculateBudgetableIncomeAmount,
   calculateBudgetPeriodSummary,
   calculateGlobalAllocationSummary,
+  isPrepaidTransaction,
+  monthInputValue,
+  normalizeMonthStart,
 } from "../lib/budget-calculations.ts";
 
 test("income allocated to savings only exposes the budgetable remainder", () => {
@@ -72,4 +76,25 @@ test("global allocation reports wallet shortfall across savings and remaining bu
       shortfall: 500_000,
     },
   );
+});
+
+test("budget period remains June across UTC representation of Jakarta midnight", () => {
+  const juneStart = normalizeMonthStart("2026-06");
+
+  assert.equal(juneStart.toISOString(), "2026-05-31T17:00:00.000Z");
+  assert.equal(monthInputValue(juneStart), "2026-06");
+  assert.equal(
+    isPrepaidTransaction(
+      new Date("2026-06-01T00:00:00.000Z"),
+      juneStart,
+    ),
+    false,
+  );
+});
+
+test("budget period range contains June markers using Jakarta boundaries", () => {
+  const period = budgetMonthRange("2026-06");
+
+  assert.equal(period.gte.toISOString(), "2026-05-31T17:00:00.000Z");
+  assert.equal(period.lt.toISOString(), "2026-06-30T17:00:00.000Z");
 });

@@ -10,7 +10,11 @@ import { Prisma } from "@/lib/generated/prisma/client";
 import type { PrismaTransactionClient } from "@/lib/prisma-transaction";
 import { prisma } from "@/lib/prisma";
 import { getUnlockedAppUserForRequest } from "@/lib/secure-api-user";
-import { normalizeMonthStart } from "@/lib/budgets";
+import {
+  budgetMonthRange,
+  monthInputValue,
+  normalizeMonthStart,
+} from "@/lib/budgets";
 import { validateBudgetableIncomeReduction } from "@/lib/budgetable-income";
 import {
   assertGlobalAllocationNotWorse,
@@ -132,7 +136,7 @@ async function validateTransactionReferences(
         ? prisma.budget.findFirst({
             where: {
               userId,
-              month: payload.transferFeeBudgetMonth,
+              month: budgetMonthRange(payload.transferFeeBudgetMonth)!,
               budgetCategoryId: payload.transferFeeBudgetCategoryId,
               budgetCategory: { isHidden: false },
             },
@@ -180,7 +184,7 @@ async function validateTransactionReferences(
       ? prisma.budget.findFirst({
           where: {
             userId,
-            month: payload.budgetMonth,
+            month: budgetMonthRange(payload.budgetMonth)!,
             budgetCategoryId: payload.budgetCategoryId,
             budgetCategory: { isHidden: false },
           },
@@ -266,7 +270,9 @@ export async function PATCH(
     const existingBudgetPeriod = getBudgetPeriod(existingTransaction);
     const replacementBudgetableAmount =
       result.data.type === TransactionType.INCOME &&
-      result.data.budgetMonth?.getTime() === existingBudgetPeriod.getTime()
+      result.data.budgetMonth &&
+      monthInputValue(result.data.budgetMonth) ===
+        monthInputValue(existingBudgetPeriod)
         ? result.data.budgetableAmount
         : 0;
 

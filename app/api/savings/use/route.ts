@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { Prisma } from "@/lib/generated/prisma/client";
 import { parseIntegerAmount } from "@/lib/money";
+import { isPrepaidTransaction, normalizeMonthStart } from "@/lib/budgets";
 import {
   SavingLedgerType,
   TransactionSource,
@@ -96,8 +97,8 @@ export async function POST(request: NextRequest) {
   const budgetMonthValue =
     typeof body?.budgetMonth === "string" ? body.budgetMonth : "";
   const budgetMonth = budgetMonthValue
-    ? new Date(`${budgetMonthValue}-01`)
-    : new Date(date.getFullYear(), date.getMonth(), 1);
+    ? normalizeMonthStart(budgetMonthValue)
+    : normalizeMonthStart(date);
 
   if (!walletId) {
     return NextResponse.json({ error: "Wallet is required." }, { status: 400 });
@@ -110,7 +111,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (budgetMonthValue && Number.isNaN(budgetMonth.getTime())) {
+  if (!budgetMonth) {
     return NextResponse.json(
       { error: "Invalid budget month." },
       { status: 400 },
@@ -143,10 +144,7 @@ export async function POST(request: NextRequest) {
           rawMessage: "savings-use",
           transactionDate: date,
           budgetMonth,
-          isPrepaid:
-            budgetMonth.getFullYear() > date.getFullYear() ||
-            (budgetMonth.getFullYear() === date.getFullYear() &&
-              budgetMonth.getMonth() > date.getMonth()),
+          isPrepaid: isPrepaidTransaction(date, budgetMonth),
         },
       });
 

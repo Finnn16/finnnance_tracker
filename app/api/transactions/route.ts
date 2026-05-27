@@ -11,7 +11,7 @@ import {
   UserRole,
 } from "@/lib/prisma-enums";
 import { Prisma } from "@/lib/generated/prisma/client";
-import { normalizeMonthStart } from "@/lib/budgets";
+import { budgetMonthRange, normalizeMonthStart } from "@/lib/budgets";
 import type { PrismaTransactionClient } from "@/lib/prisma-transaction";
 import { prisma } from "@/lib/prisma";
 import { getUnlockedAppUserForRequest } from "@/lib/secure-api-user";
@@ -113,7 +113,7 @@ async function validateTransactionReferences(
         ? prisma.budget.findFirst({
             where: {
               userId,
-              month: payload.transferFeeBudgetMonth,
+              month: budgetMonthRange(payload.transferFeeBudgetMonth)!,
               budgetCategoryId: payload.transferFeeBudgetCategoryId,
               budgetCategory: { isHidden: false },
             },
@@ -157,7 +157,7 @@ async function validateTransactionReferences(
       ? prisma.budget.findFirst({
           where: {
             userId,
-            month: payload.budgetMonth,
+            month: budgetMonthRange(payload.budgetMonth)!,
             budgetCategoryId: payload.budgetCategoryId,
             budgetCategory: { isHidden: false },
           },

@@ -1,17 +1,23 @@
 import { TransactionType, WalletType } from "@/lib/prisma-enums";
 import { Prisma } from "@/lib/generated/prisma/client";
-import { calculateBudgetPeriodSummary } from "@/lib/budgets";
+import {
+  BUDGET_TIME_ZONE,
+  budgetMonthRange,
+  calculateBudgetPeriodSummary,
+  monthInputValue,
+  normalizeMonthStart,
+} from "@/lib/budgets";
 import { getGlobalAllocationSummary } from "@/lib/global-allocation";
 import { prisma } from "@/lib/prisma";
 import { calculateSavingsSummary } from "@/lib/savings";
 import { getWalletTypeLabel } from "@/lib/wallets";
 
 function startOfMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
+  return normalizeMonthStart(date)!;
 }
 
 function startOfNextMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth() + 1, 1);
+  return budgetMonthRange(date)!.lt;
 }
 
 function startOfDay(date: Date) {
@@ -23,13 +29,14 @@ function sameMonthStart(left: Date | null | undefined, right: Date) {
     return false;
   }
 
-  return startOfMonth(left).getTime() === startOfMonth(right).getTime();
+  return monthInputValue(left) === monthInputValue(right);
 }
 
 function formatShortDate(date: Date) {
   return new Intl.DateTimeFormat("id-ID", {
     day: "2-digit",
     month: "short",
+    timeZone: BUDGET_TIME_ZONE,
   }).format(date);
 }
 
@@ -39,6 +46,7 @@ function formatMonthRange(start: Date, end: Date) {
   const monthName = new Intl.DateTimeFormat("id-ID", {
     month: "long",
     year: "numeric",
+    timeZone: BUDGET_TIME_ZONE,
   }).format(start);
 
   return `${formatShortDate(start)} - ${formatShortDate(endDate)} (${monthName})`;
@@ -166,7 +174,9 @@ export async function getDashboardData(selectedMonth?: string) {
   const now = new Date();
   const parsedMonth = parseMonthKey(selectedMonth);
   const monthStart = parsedMonth
-    ? startOfMonth(new Date(parsedMonth.year, parsedMonth.monthIndex, 1))
+    ? normalizeMonthStart(
+        `${parsedMonth.year}-${String(parsedMonth.monthIndex + 1).padStart(2, "0")}`,
+      )!
     : startOfMonth(now);
   const nextMonthStart = startOfNextMonth(monthStart);
   const chartStart = startOfDay(new Date(now));
@@ -224,7 +234,7 @@ export async function getDashboardData(selectedMonth?: string) {
       take: 8,
     }),
     prisma.budget.findMany({
-      where: { month: monthStart },
+      where: { month: { gte: monthStart, lt: nextMonthStart } },
       include: {
         user: { select: { name: true } },
         budgetCategory: { select: { id: true, name: true } },
@@ -257,7 +267,7 @@ export async function getDashboardData(selectedMonth?: string) {
     prisma.transaction.aggregate({
       where: {
         type: TransactionType.INCOME,
-        budgetMonth: monthStart,
+        budgetMonth: { gte: monthStart, lt: nextMonthStart },
       },
       _sum: { budgetableAmount: true },
     }),

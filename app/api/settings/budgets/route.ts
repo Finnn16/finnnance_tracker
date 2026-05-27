@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { calculateBudgetPeriodSummary, validateBudgetPayload } from "@/lib/budgets";
+import {
+  budgetMonthRange,
+  calculateBudgetPeriodSummary,
+  validateBudgetPayload,
+} from "@/lib/budgets";
 import {
   assertGlobalAllocationNotWorse,
   getGlobalAllocationSummary,
@@ -104,16 +108,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const selectedMonthRange = budgetMonthRange(result.data.month)!;
   const [monthBudgets, budgetableIncome] = await Promise.all([
       prisma.budget.findMany({
-        where: { userId: result.data.userId, month: result.data.month },
-        select: { budgetCategoryId: true, amount: true },
+        where: { userId: result.data.userId, month: selectedMonthRange },
+        select: { id: true, budgetCategoryId: true, amount: true },
       }),
       prisma.transaction.aggregate({
         where: {
           userId: result.data.userId,
           type: TransactionType.INCOME,
-          budgetMonth: result.data.month,
+          budgetMonth: selectedMonthRange,
         },
         _sum: { budgetableAmount: true },
       }),
@@ -127,6 +132,9 @@ export async function POST(request: NextRequest) {
     monthBudgets.find(
       (budget) => budget.budgetCategoryId === result.data.budgetCategoryId,
     )?.amount || 0;
+  const existingBudgetId = monthBudgets.find(
+    (budget) => budget.budgetCategoryId === result.data.budgetCategoryId,
+  )?.id;
   const budgetedAmountAfterUpsert =
     budgetedAmount - existingBudgetAmount + result.data.amount;
   const summaryAfterUpsert = calculateBudgetPeriodSummary({
@@ -166,26 +174,27 @@ export async function POST(request: NextRequest) {
   try {
     const resultAfterUpsert = await prisma.$transaction(
       async (tx: PrismaTransactionClient) => {
-        const updatedBudget = await tx.budget.upsert({
-          where: {
-            userId_month_budgetCategoryId: {
-              userId: result.data.userId,
-              month: result.data.month,
-              budgetCategoryId: result.data.budgetCategoryId,
-            },
-          },
-          update: { amount: result.data.amount },
-          create: {
-            userId: result.data.userId,
-            budgetCategoryId: result.data.budgetCategoryId,
-            month: result.data.month,
-            amount: result.data.amount,
-          },
-          include: {
-            user: { select: { name: true, email: true } },
-            budgetCategory: { select: { name: true, isHidden: true } },
-          },
-        });
+        const updatedBudget = existingBudgetId
+          ? await tx.budget.update({
+              where: { id: existingBudgetId },
+              data: { month: result.data.month, amount: result.data.amount },
+              include: {
+                user: { select: { name: true, email: true } },
+                budgetCategory: { select: { name: true, isHidden: true } },
+              },
+            })
+          : await tx.budget.create({
+              data: {
+                userId: result.data.userId,
+                budgetCategoryId: result.data.budgetCategoryId,
+                month: result.data.month,
+                amount: result.data.amount,
+              },
+              include: {
+                user: { select: { name: true, email: true } },
+                budgetCategory: { select: { name: true, isHidden: true } },
+              },
+            });
 
         const allocation = await assertGlobalAllocationNotWorse({
           db: tx,
