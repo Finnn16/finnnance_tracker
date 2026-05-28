@@ -45,7 +45,15 @@ type AiInsightResponse = {
   tone: "positive" | "warning" | "neutral";
 };
 
-const OPENROUTER_MODEL = "nvidia/nemotron-3-super-120b-a12b:free";
+function getGeminiModels() {
+  return Array.from(
+    new Set(
+      [env.geminiModel, ...env.geminiFallbackModels]
+        .map((model) => model.trim())
+        .filter(Boolean),
+    ),
+  );
+}
 
 function toCurrency(value: number | undefined) {
   return new Intl.NumberFormat("id-ID", {
@@ -206,6 +214,86 @@ function buildFallbackResponse(input: AiInsightRequest, warning: string) {
   });
 }
 
+function buildGeminiPayload(input: AiInsightRequest) {
+  return {
+    systemInstruction: {
+      parts: [
+        {
+          text: "You are a concise personal finance assistant that outputs valid JSON only.",
+        },
+      ],
+    },
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: buildPrompt(input) }],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.3,
+      maxOutputTokens: 220,
+      responseMimeType: "application/json",
+    },
+  };
+}
+
+async function requestGeminiInsight(input: AiInsightRequest, model: string) {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  const response = await measureServerOperation(
+    "api /api/ai/insight.gemini",
+    () =>
+      fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-goog-api-key": env.geminiApiKey,
+        },
+        body: JSON.stringify(buildGeminiPayload(input)),
+      }),
+  );
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    return {
+      insight: null,
+      error: `HTTP ${response.status}: ${text.slice(0, 500)}`,
+    };
+  }
+
+  try {
+    const payload = JSON.parse(text) as {
+      candidates?: Array<{
+        content?: {
+          parts?: Array<{ text?: string }>;
+        };
+      }>;
+    };
+    const content =
+      payload.candidates?.[0]?.content?.parts
+        ?.map((part) => part.text || "")
+        .join("") || "";
+    const insight = parseInsight(content);
+
+    if (!insight) {
+      return {
+        insight: null,
+        error: `Unparseable response: ${content.slice(0, 500)}`,
+      };
+    }
+
+    return { insight, error: null };
+  } catch (error) {
+    return {
+      insight: null,
+      error:
+        error instanceof Error
+          ? `Invalid JSON response: ${error.message}`
+          : "Invalid JSON response.",
+    };
+  }
+}
+
 export async function POST(request: NextRequest) {
   const auth = await getUnlockedAppUserForRequest("api /api/ai/insight");
 
@@ -225,72 +313,33 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const response = await measureServerOperation(
-      "api /api/ai/insight.openrouter",
-      () =>
-        fetch("https://openrouter.ai/api/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${env.openrouterApiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: OPENROUTER_MODEL,
-            temperature: 0.3,
-            max_tokens: 220,
-            messages: [
-              {
-                role: "system",
-                content:
-                  "You are a concise personal finance assistant that outputs valid JSON only.",
-              },
-              {
-                role: "user",
-                content: buildPrompt(body),
-              },
-            ],
-          }),
-        }),
-    );
+    const failures: string[] = [];
 
-    if (!response.ok) {
-      const text = await response.text();
-      if (response.status === 429) {
-        return buildFallbackResponse(
-          body,
-          "OpenRouter sedang kena limit harian; insight lokal dipakai sementara.",
-        );
+    for (const model of getGeminiModels()) {
+      const result = await requestGeminiInsight(body, model);
+
+      if (result.insight) {
+        return NextResponse.json({
+          insight: result.insight,
+          model,
+        });
       }
 
-      console.error("OpenRouter request failed:", response.status, text);
-      return buildFallbackResponse(
-        body,
-        "OpenRouter gagal merespons; insight lokal dipakai sementara.",
-      );
+      failures.push(`${model} => ${result.error}`);
+      console.warn("Gemini model failed:", model, result.error);
     }
 
-    const payload = (await response.json()) as {
-      choices?: Array<{
-        message?: { content?: string };
-      }>;
-    };
+    console.error("All Gemini models failed:", failures.join("\n"));
 
-    const content = payload.choices?.[0]?.message?.content || "";
-    const insight = parseInsight(content);
-
-    if (!insight) {
-      return buildFallbackResponse(
-        body,
-        "OpenRouter mengembalikan respons yang tidak bisa diparse; fallback local insight digunakan.",
-      );
-    }
-
-    return NextResponse.json({ insight });
+    return buildFallbackResponse(
+      body,
+      "Semua model Gemini gagal merespons; insight lokal dipakai sementara.",
+    );
   } catch (error) {
     console.error("Failed to generate AI insight:", error);
     return buildFallbackResponse(
       body,
-      "Request ke OpenRouter gagal; fallback local insight digunakan.",
+      "Request ke Gemini gagal; fallback local insight digunakan.",
     );
   }
 }

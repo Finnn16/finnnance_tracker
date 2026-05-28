@@ -4,6 +4,7 @@ import { FormEvent, ReactNode, useMemo, useState } from "react";
 
 import { calculateBudgetPeriodSummary, monthInputValue } from "@/lib/budgets";
 import { SensitiveAmount } from "@/components/PrivacyMode";
+import { useUiDensity, UiDensityMode } from "@/components/UiDensityProvider";
 import { TransactionType, UserRole } from "@/lib/prisma-enums";
 import {
   formatAmountInput,
@@ -231,9 +232,16 @@ export function SettingsClient({
   const [fundingShortfalls, setFundingShortfalls] = useState(
     fundingShortfallByUser,
   );
+  const uiDensity = useUiDensity();
   const [activePanel, setActivePanel] = useState<
-    "categories" | "groups" | "budgetCategories" | "budgets"
+    "appearance" | "categories" | "groups" | "budgetCategories" | "budgets"
   >(view === "budgets" ? "budgets" : "categories");
+  const [mobileCreatePanel, setMobileCreatePanel] = useState<
+    "category" | "group" | "budgetCategory" | null
+  >(null);
+  const [mobileFilterPanel, setMobileFilterPanel] = useState<
+    "categories" | "groups" | "budgetCategories" | null
+  >(null);
   const [showHidden, setShowHidden] = useState(false);
   const [categorySearch, setCategorySearch] = useState("");
   const [categoryGroupSearch, setCategoryGroupSearch] = useState("");
@@ -390,6 +398,7 @@ export function SettingsClient({
 
       setCategoryForm(emptyCategoryForm);
       setCategories((current) => [...current, data.category!]);
+      setMobileCreatePanel(null);
     } catch {
       setError("Failed to create category. Please try again.");
     } finally {
@@ -422,6 +431,7 @@ export function SettingsClient({
 
       setCategoryGroupForm(emptyCategoryGroupForm);
       setCategoryGroupAnchors((current) => [...current, data.group!]);
+      setMobileCreatePanel(null);
     } catch {
       setError("Failed to create group. Please try again.");
     } finally {
@@ -631,6 +641,7 @@ export function SettingsClient({
         isHidden: false,
       });
       setBudgetCategories((current) => [...current, data.budgetCategory!]);
+      setMobileCreatePanel(null);
     } catch {
       setError("Failed to create budget category.");
     } finally {
@@ -866,8 +877,8 @@ export function SettingsClient({
   };
 
   return (
-    <section className="flex h-full min-h-0 flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-4 border-b border-zinc-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm sm:rounded-2xl">
+      <div className="flex shrink-0 flex-col gap-3 border-b border-zinc-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
         <div>
           <h2 className="text-lg font-semibold text-zinc-950">
             {view === "budgets" ? "Monthly Budget" : "Finance Settings"}
@@ -880,7 +891,12 @@ export function SettingsClient({
         </div>
 
         {view === "settings" ? (
-          <div className="grid grid-cols-3 rounded-lg bg-zinc-100 p-1">
+          <div className="scrollbar-hide -mx-1 flex gap-1 overflow-x-auto px-1 sm:mx-0 sm:grid sm:grid-cols-4 sm:overflow-visible sm:rounded-lg sm:bg-zinc-100 sm:p-1">
+            <TabButton
+              active={activePanel === "appearance"}
+              label="Appearance"
+              onClick={() => setActivePanel("appearance")}
+            />
             <TabButton
               active={activePanel === "categories"}
               label="Categories"
@@ -900,20 +916,30 @@ export function SettingsClient({
         ) : null}
       </div>
 
-      <div className="min-h-0 flex-1 p-5">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
         {error ? (
           <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
           </p>
         ) : null}
 
+        {activePanel === "appearance" ? (
+          <AppearanceSettings
+            mode={uiDensity.mode}
+            customFontSize={uiDensity.customFontSize}
+            effectiveFontSize={uiDensity.effectiveFontSize}
+            onModeChange={uiDensity.setMode}
+            onCustomFontSizeChange={uiDensity.setCustomFontSize}
+          />
+        ) : null}
+
         {activePanel === "categories" ? (
-          <div className="grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-5">
             <PanelList
               title="Transaction Categories"
               description="Hide categories to keep transaction input compact."
             >
-              <div className="grid gap-3 border-b border-zinc-100 p-5 md:grid-cols-[minmax(0,1fr)_150px_130px]">
+              <div className="hidden gap-3 border-b border-zinc-100 p-5 md:grid md:grid-cols-[minmax(0,1fr)_150px_130px]">
                 <input
                   value={categorySearch}
                   onChange={(event) => setCategorySearch(event.target.value)}
@@ -939,14 +965,14 @@ export function SettingsClient({
                 <HiddenToggle checked={showHidden} onChange={setShowHidden} />
               </div>
 
-              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 sm:space-y-3 sm:p-5">
                 {filteredCategories.length === 0 ? (
                   <EmptyPanel text="No categories match your filter." />
                 ) : null}
                 {filteredCategories.map((category) => (
                   <article
                     key={category.id}
-                    className="rounded-lg border border-zinc-100 p-4"
+                    className="rounded-lg border border-zinc-100 p-3 sm:p-4"
                   >
                     {editCategoryId === category.id ? (
                       <CategoryForm
@@ -991,7 +1017,7 @@ export function SettingsClient({
               </div>
             </PanelList>
 
-            <aside className="rounded-2xl border border-zinc-200 bg-zinc-50 p-5 xl:self-start">
+            <aside className="hidden rounded-2xl border border-zinc-200 bg-zinc-50 p-5 xl:block xl:self-start">
               <h2 className="text-lg font-semibold text-zinc-950">
                 Add Category
               </h2>
@@ -1009,12 +1035,12 @@ export function SettingsClient({
         ) : null}
 
         {activePanel === "groups" ? (
-          <div className="grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-5">
             <PanelList
               title="Category Groups"
               description="Create and rename master groups used by the transaction form."
             >
-              <div className="grid gap-3 border-b border-zinc-100 p-5 md:grid-cols-[minmax(0,1fr)_150px]">
+              <div className="hidden gap-3 border-b border-zinc-100 p-5 md:grid md:grid-cols-[minmax(0,1fr)_150px]">
                 <input
                   value={categoryGroupSearch}
                   onChange={(event) =>
@@ -1026,14 +1052,14 @@ export function SettingsClient({
                 <HiddenToggle checked={showHidden} onChange={setShowHidden} />
               </div>
 
-              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 sm:space-y-3 sm:p-5">
                 {filteredCategoryGroups.length === 0 ? (
                   <EmptyPanel text="No groups match your filter." />
                 ) : null}
                 {filteredCategoryGroups.map((group) => (
                   <article
                     key={group.id}
-                    className="rounded-lg border border-zinc-100 p-4"
+                    className="rounded-lg border border-zinc-100 p-3 sm:p-4"
                   >
                     {editCategoryGroupId === group.id ? (
                       <CategoryGroupForm
@@ -1078,7 +1104,7 @@ export function SettingsClient({
               </div>
             </PanelList>
 
-            <aside className="rounded-2xl border border-zinc-200 bg-zinc-50 p-5 xl:self-start">
+            <aside className="hidden rounded-2xl border border-zinc-200 bg-zinc-50 p-5 xl:block xl:self-start">
               <h2 className="text-lg font-semibold text-zinc-950">Add Group</h2>
               <div className="mt-5">
                 <CategoryGroupForm
@@ -1094,12 +1120,12 @@ export function SettingsClient({
         ) : null}
 
         {activePanel === "budgetCategories" ? (
-          <div className="grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-5">
             <PanelList
               title="Budget Envelopes"
               description="These are separate from transaction income or expense categories."
             >
-              <div className="grid gap-3 border-b border-zinc-100 p-5 md:grid-cols-[minmax(0,1fr)_130px]">
+              <div className="hidden gap-3 border-b border-zinc-100 p-5 md:grid md:grid-cols-[minmax(0,1fr)_130px]">
                 <input
                   value={budgetCategorySearch}
                   onChange={(event) =>
@@ -1111,14 +1137,14 @@ export function SettingsClient({
                 <HiddenToggle checked={showHidden} onChange={setShowHidden} />
               </div>
 
-              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 sm:space-y-3 sm:p-5">
                 {filteredBudgetCategories.length === 0 ? (
                   <EmptyPanel text="No budget envelopes yet." />
                 ) : null}
                 {filteredBudgetCategories.map((category) => (
                   <article
                     key={category.id}
-                    className="rounded-lg border border-zinc-100 p-4"
+                    className="rounded-lg border border-zinc-100 p-3 sm:p-4"
                   >
                     {editBudgetCategoryId === category.id ? (
                       <BudgetCategoryForm
@@ -1169,7 +1195,7 @@ export function SettingsClient({
               </div>
             </PanelList>
 
-            <aside className="rounded-2xl border border-zinc-200 bg-zinc-50 p-5 xl:self-start">
+            <aside className="hidden rounded-2xl border border-zinc-200 bg-zinc-50 p-5 xl:block xl:self-start">
               <h2 className="text-lg font-semibold text-zinc-950">
                 Add Envelope
               </h2>
@@ -1462,6 +1488,165 @@ export function SettingsClient({
           </div>
         ) : null}
       </div>
+
+      {view === "settings" &&
+      (activePanel === "categories" ||
+        activePanel === "groups" ||
+        activePanel === "budgetCategories") ? (
+        <>
+          <button
+            type="button"
+            onClick={() =>
+              setMobileFilterPanel(
+                activePanel === "categories"
+                  ? "categories"
+                  : activePanel === "groups"
+                    ? "groups"
+                    : "budgetCategories",
+              )
+            }
+            aria-label="Filter settings list"
+            title="Filter"
+            className="fixed bottom-48 right-4 z-50 flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 shadow-lg transition hover:bg-zinc-50 active:scale-95 md:hidden"
+          >
+            <FilterIcon />
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setMobileCreatePanel(
+                activePanel === "categories"
+                  ? "category"
+                  : activePanel === "groups"
+                    ? "group"
+                    : "budgetCategory",
+              )
+            }
+            aria-label={
+              activePanel === "categories"
+                ? "Add category"
+                : activePanel === "groups"
+                  ? "Add group"
+                  : "Add envelope"
+            }
+            title={
+              activePanel === "categories"
+                ? "Add category"
+                : activePanel === "groups"
+                  ? "Add group"
+                  : "Add envelope"
+            }
+            className="fixed bottom-36 right-4 z-50 flex h-11 w-11 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 active:scale-95 xl:hidden"
+          >
+            <PlusIcon />
+          </button>
+        </>
+      ) : null}
+
+      {mobileCreatePanel ? (
+        <SettingsCreateDialog
+          title={
+            mobileCreatePanel === "category"
+              ? "Add Category"
+              : mobileCreatePanel === "group"
+                ? "Add Group"
+                : "Add Envelope"
+          }
+          onClose={() => setMobileCreatePanel(null)}
+        >
+          {mobileCreatePanel === "category" ? (
+            <CategoryForm
+              form={categoryForm}
+              submitLabel="Add Category"
+              isSubmitting={isSubmitting}
+              onChange={setCategoryForm}
+              onSubmit={handleCreateCategory}
+            />
+          ) : null}
+
+          {mobileCreatePanel === "group" ? (
+            <CategoryGroupForm
+              form={categoryGroupForm}
+              submitLabel="Add Group"
+              isSubmitting={isSubmitting}
+              onChange={setCategoryGroupForm}
+              onSubmit={handleCreateCategoryGroup}
+            />
+          ) : null}
+
+          {mobileCreatePanel === "budgetCategory" ? (
+            <BudgetCategoryForm
+              form={budgetCategoryForm}
+              users={visibleUsers}
+              submitLabel="Add Envelope"
+              isSubmitting={isSubmitting}
+              canChangeUser={currentUserRole === UserRole.ADMIN}
+              onChange={setBudgetCategoryForm}
+              onSubmit={handleCreateBudgetCategory}
+            />
+          ) : null}
+        </SettingsCreateDialog>
+      ) : null}
+
+      {mobileFilterPanel ? (
+        <SettingsFilterDialog
+          title={
+            mobileFilterPanel === "categories"
+              ? "Filter Categories"
+              : mobileFilterPanel === "groups"
+                ? "Filter Groups"
+                : "Filter Envelopes"
+          }
+          onClose={() => setMobileFilterPanel(null)}
+        >
+          {mobileFilterPanel === "categories" ? (
+            <SettingsFilterFields
+              searchValue={categorySearch}
+              searchPlaceholder="Search name or group"
+              onSearchChange={setCategorySearch}
+              showHidden={showHidden}
+              onShowHiddenChange={setShowHidden}
+            >
+              <select
+                value={categoryTypeFilter}
+                onChange={(event) =>
+                  setCategoryTypeFilter(
+                    event.target.value as
+                      | "ALL"
+                      | typeof TransactionType.INCOME
+                      | typeof TransactionType.EXPENSE,
+                  )
+                }
+                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-950 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="ALL">All types</option>
+                <option value={TransactionType.EXPENSE}>Expense</option>
+                <option value={TransactionType.INCOME}>Income</option>
+              </select>
+            </SettingsFilterFields>
+          ) : null}
+
+          {mobileFilterPanel === "groups" ? (
+            <SettingsFilterFields
+              searchValue={categoryGroupSearch}
+              searchPlaceholder="Search group or type"
+              onSearchChange={setCategoryGroupSearch}
+              showHidden={showHidden}
+              onShowHiddenChange={setShowHidden}
+            />
+          ) : null}
+
+          {mobileFilterPanel === "budgetCategories" ? (
+            <SettingsFilterFields
+              searchValue={budgetCategorySearch}
+              searchPlaceholder="Search envelope or user"
+              onSearchChange={setBudgetCategorySearch}
+              showHidden={showHidden}
+              onShowHiddenChange={setShowHidden}
+            />
+          ) : null}
+        </SettingsFilterDialog>
+      ) : null}
     </section>
   );
 }
@@ -1481,12 +1666,321 @@ function TabButton({
       onClick={onClick}
       className={
         active
-          ? "rounded-md bg-white px-3 py-2 text-sm font-semibold text-blue-700 shadow-sm"
-          : "rounded-md px-3 py-2 text-sm font-medium text-zinc-600 hover:text-zinc-950"
+          ? "shrink-0 rounded-full bg-zinc-950 px-4 py-2 text-xs font-semibold text-white shadow-sm sm:rounded-md sm:bg-white sm:px-3 sm:text-sm sm:text-blue-700"
+          : "shrink-0 rounded-full border border-zinc-200 bg-white px-4 py-2 text-xs font-medium text-zinc-600 hover:text-zinc-950 sm:rounded-md sm:border-0 sm:bg-transparent sm:px-3 sm:text-sm"
       }
     >
       {label}
     </button>
+  );
+}
+
+function SettingsCreateDialog({
+  title,
+  children,
+  onClose,
+}: {
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-end justify-center bg-zinc-950/45 p-3 xl:hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-create-dialog-title"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[calc(100dvh-4rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white p-4 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-zinc-100 pb-3">
+          <h2
+            id="settings-create-dialog-title"
+            className="text-base font-semibold text-zinc-950"
+          >
+            {title}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close form"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 transition hover:bg-zinc-50"
+          >
+            <span className="text-xl leading-none" aria-hidden="true">
+              X
+            </span>
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto pt-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsFilterDialog({
+  title,
+  children,
+  onClose,
+}: {
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-end justify-center bg-zinc-950/45 p-3 md:hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-filter-dialog-title"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-2xl bg-white p-4 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-zinc-100 pb-3">
+          <h2
+            id="settings-filter-dialog-title"
+            className="text-base font-semibold text-zinc-950"
+          >
+            {title}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close filter"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600"
+          >
+            <span className="text-xl leading-none" aria-hidden="true">
+              X
+            </span>
+          </button>
+        </div>
+        <div className="space-y-3 pt-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsFilterFields({
+  searchValue,
+  searchPlaceholder,
+  showHidden,
+  children,
+  onSearchChange,
+  onShowHiddenChange,
+}: {
+  searchValue: string;
+  searchPlaceholder: string;
+  showHidden: boolean;
+  children?: ReactNode;
+  onSearchChange: (value: string) => void;
+  onShowHiddenChange: (checked: boolean) => void;
+}) {
+  return (
+    <>
+      <input
+        value={searchValue}
+        onChange={(event) => onSearchChange(event.target.value)}
+        className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-950 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+        placeholder={searchPlaceholder}
+      />
+      {children}
+      <HiddenToggle checked={showHidden} onChange={onShowHiddenChange} />
+    </>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-6 w-6"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
+function FilterIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-5 w-5"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 5h18" />
+      <path d="M6 12h12" />
+      <path d="M10 19h4" />
+    </svg>
+  );
+}
+
+function AppearanceSettings({
+  mode,
+  customFontSize,
+  effectiveFontSize,
+  onModeChange,
+  onCustomFontSizeChange,
+}: {
+  mode: UiDensityMode;
+  customFontSize: number;
+  effectiveFontSize: number;
+  onModeChange: (mode: UiDensityMode) => void;
+  onCustomFontSizeChange: (fontSize: number) => void;
+}) {
+  const options: Array<{
+    mode: UiDensityMode;
+    title: string;
+    description: string;
+  }> = [
+    {
+      mode: "compact",
+      title: "Compact",
+      description: "Lebih kecil dan padat untuk mobile.",
+    },
+    {
+      mode: "comfortable",
+      title: "Comfortable",
+      description: "Ukuran sedang untuk penggunaan harian.",
+    },
+    {
+      mode: "spacious",
+      title: "Spacious",
+      description: "Lebih besar dan lega.",
+    },
+    {
+      mode: "custom",
+      title: "Custom",
+      description: "Atur sendiri ukuran font dasar.",
+    },
+  ];
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-4 pb-4">
+      <div className="rounded-xl border border-zinc-200 bg-white p-4 sm:rounded-2xl sm:p-5">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-950">
+            Interface Size
+          </h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            Mengatur ukuran font dan spacing seluruh web app di device ini.
+          </p>
+        </div>
+
+        <div className="mt-4 grid gap-2 sm:mt-5 sm:grid-cols-2 sm:gap-3">
+          {options.map((option) => {
+            const active = mode === option.mode;
+
+            return (
+              <button
+                key={option.mode}
+                type="button"
+                onClick={() => onModeChange(option.mode)}
+                className={
+                  active
+                    ? "rounded-lg border border-blue-200 bg-blue-50 p-3 text-left ring-2 ring-blue-100 sm:rounded-xl sm:p-4"
+                    : "rounded-lg border border-zinc-200 bg-white p-3 text-left transition hover:border-zinc-300 hover:bg-zinc-50 sm:rounded-xl sm:p-4"
+                }
+              >
+                <span
+                  className={
+                    active
+                      ? "text-sm font-semibold text-blue-700"
+                      : "text-sm font-semibold text-zinc-950"
+                  }
+                >
+                  {option.title}
+                </span>
+                <span className="mt-1 block text-xs leading-5 text-zinc-500">
+                  {option.description}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-3 sm:mt-5 sm:p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-zinc-950">
+                Custom base size
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                Current effective size: {effectiveFontSize.toFixed(1)}px
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={13}
+                max={17}
+                step={0.25}
+                value={customFontSize}
+                onChange={(event) =>
+                  onCustomFontSizeChange(Number(event.target.value))
+                }
+                className="w-24 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-950"
+              />
+              <span className="text-sm font-medium text-zinc-500">px</span>
+            </div>
+          </div>
+          <input
+            type="range"
+            min={13}
+            max={17}
+            step={0.25}
+            value={customFontSize}
+            onChange={(event) =>
+              onCustomFontSizeChange(Number(event.target.value))
+            }
+            className="mt-4 w-full"
+          />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-zinc-200 bg-white p-4 sm:rounded-2xl sm:p-5">
+        <p className="text-xs font-semibold uppercase text-zinc-500">
+          Preview
+        </p>
+        <div className="mt-3 rounded-xl border border-zinc-100 p-3 sm:p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-base font-semibold text-zinc-950">
+                Lunch with Awa
+              </p>
+              <p className="mt-1 text-sm text-zinc-500">
+                Today - Wallet - Food
+              </p>
+            </div>
+            <p className="text-lg font-bold text-red-700">
+              <SensitiveAmount>{formatRupiah(-45000)}</SensitiveAmount>
+            </p>
+          </div>
+          <button
+            type="button"
+            className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white"
+          >
+            Sample Button
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1500,11 +1994,15 @@ function PanelList({
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-h-0 flex-col rounded-2xl border border-zinc-200 bg-white">
-      <div className="border-b border-zinc-100 p-5">
+    <div className="flex min-h-0 flex-col rounded-xl border border-zinc-200 bg-white sm:rounded-2xl">
+      <div className="border-b border-zinc-100 p-3 sm:p-5">
         <div>
-          <h2 className="text-lg font-semibold text-zinc-950">{title}</h2>
-          <p className="mt-1 text-sm text-zinc-500">{description}</p>
+          <h2 className="text-base font-semibold text-zinc-950 sm:text-lg">
+            {title}
+          </h2>
+          <p className="mt-1 text-xs text-zinc-500 sm:text-sm">
+            {description}
+          </p>
         </div>
       </div>
       {children}

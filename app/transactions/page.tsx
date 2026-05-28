@@ -1,6 +1,7 @@
 import { AppPageShell } from "@/components/AppPageShell";
 import { TransactionsClient } from "@/components/TransactionsClient";
 import { monthInputValue } from "@/lib/budgets";
+import { Prisma } from "@/lib/generated/prisma/client";
 import { TransactionType, UserRole } from "@/lib/prisma-enums";
 import { prisma } from "@/lib/prisma";
 import { requireUnlockedAppUser } from "@/lib/secure-app-user";
@@ -8,8 +9,100 @@ import { measureServerOperation } from "@/lib/server-performance";
 
 export const dynamic = "force-dynamic";
 
-export default async function TransactionsPage() {
+const PAGE_SIZE_OPTIONS = [10, 15, 20, 25, 35];
+const DEFAULT_PAGE_SIZE = 10;
+const MAX_PAGE_SIZE = 35;
+const TRANSACTION_TABS = ["both", "income", "expense"] as const;
+
+type TransactionTab = (typeof TRANSACTION_TABS)[number];
+
+function parsePositiveInteger(value: string | undefined, fallback: number) {
+  const parsed = Number.parseInt(value || "", 10);
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getPageSize(value: string | undefined) {
+  const parsed = parsePositiveInteger(value, DEFAULT_PAGE_SIZE);
+
+  return Math.min(parsed, MAX_PAGE_SIZE);
+}
+
+function getTransactionTab(value: string | undefined): TransactionTab {
+  return TRANSACTION_TABS.includes(value as TransactionTab)
+    ? (value as TransactionTab)
+    : "both";
+}
+
+function getTransactionSearchWhere(
+  userFilter: Prisma.TransactionWhereInput["userId"],
+  query: string,
+  tab: TransactionTab,
+) {
+  const where: Prisma.TransactionWhereInput =
+    userFilter === undefined ? {} : { userId: userFilter };
+
+  if (tab === "income") {
+    where.type = TransactionType.INCOME;
+  }
+
+  if (tab === "expense") {
+    where.type = TransactionType.EXPENSE;
+  }
+
+  if (!query) {
+    return where;
+  }
+
+  const textFilter = { contains: query, mode: "insensitive" as const };
+  const numericQuery = Number.parseInt(query.replace(/\D/g, ""), 10);
+
+  where.OR = [
+    { description: textFilter },
+    { user: { is: { name: textFilter } } },
+    { user: { is: { email: textFilter } } },
+    { wallet: { is: { name: textFilter } } },
+    { transferToWallet: { is: { name: textFilter } } },
+    { category: { is: { name: textFilter } } },
+    { budgetCategory: { is: { name: textFilter } } },
+  ];
+
+  if (Number.isFinite(numericQuery) && numericQuery > 0) {
+    where.OR.push({ amount: numericQuery });
+  }
+
+  return where;
+}
+
+export default async function TransactionsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{
+    page?: string;
+    limit?: string;
+    q?: string;
+    tab?: string;
+  }>;
+}) {
   const user = await requireUnlockedAppUser("/transactions");
+  const resolvedSearchParams = (await searchParams) || {};
+  const requestedPage = parsePositiveInteger(resolvedSearchParams.page, 1);
+  const pageSize = getPageSize(resolvedSearchParams.limit);
+  const searchQuery = (resolvedSearchParams.q || "").trim().slice(0, 100);
+  const selectedTab = getTransactionTab(resolvedSearchParams.tab);
+  const transactionOwnerFilter =
+    user.role === UserRole.ADMIN ? undefined : user.id;
+  const transactionWhere = getTransactionSearchWhere(
+    transactionOwnerFilter,
+    searchQuery,
+    selectedTab,
+  );
+  const totalTransactions = await measureServerOperation(
+    "page /transactions.count",
+    () => prisma.transaction.count({ where: transactionWhere }),
+  );
+  const totalPages = Math.max(1, Math.ceil(totalTransactions / pageSize));
+  const currentPage = Math.min(requestedPage, totalPages);
   const [transactions, wallets, categories, budgetCategories, budgetExpenses] =
     await measureServerOperation("page /transactions.data", () =>
       Promise.all([
@@ -26,9 +119,10 @@ export default async function TransactionsPage() {
               take: 1,
             },
           },
-          where: { userId: user.id },
+          where: transactionWhere,
           orderBy: [{ transactionDate: "desc" }, { createdAt: "desc" }],
-          take: 30,
+          skip: (currentPage - 1) * pageSize,
+          take: pageSize,
         }),
         prisma.wallet.findMany({
           where: { userId: user.id },
@@ -51,7 +145,7 @@ export default async function TransactionsPage() {
         }),
         prisma.transaction.findMany({
           where: {
-            userId: user.id,
+            ...(user.role === UserRole.ADMIN ? {} : { userId: user.id }),
             type: TransactionType.EXPENSE,
             budgetCategoryId: { not: null },
           },
@@ -105,14 +199,23 @@ export default async function TransactionsPage() {
       savingsAmount: transaction.savingsAmount || null,
       savingsNote: transaction.savingLedgers[0]?.note || null,
       budgetableAmount: transaction.budgetableAmount,
-      canManage: user.role === UserRole.ADMIN || user.id === transaction.userId,
+      canManage: user.id === transaction.userId,
     }),
   );
 
   return (
     <AppPageShell title="Transactions" user={user} fill>
       <TransactionsClient
+        key={`${currentPage}-${pageSize}-${searchQuery}-${selectedTab}`}
         initialTransactions={transactionViews}
+        pagination={{
+          page: currentPage,
+          pageSize,
+          totalCount: totalTransactions,
+          query: searchQuery,
+          tab: selectedTab,
+          pageSizeOptions: PAGE_SIZE_OPTIONS,
+        }}
         wallets={wallets}
         categories={categories}
         budgetCategories={budgetCategories.map((category) => ({

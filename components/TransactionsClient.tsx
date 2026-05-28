@@ -1,6 +1,14 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import {
@@ -91,6 +99,21 @@ type TransactionFormState = {
   transferFeeEnabled: boolean;
   transferFeeAmount: string;
 };
+
+type TransactionPagination = {
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  query: string;
+  tab: "both" | "income" | "expense";
+  pageSizeOptions: number[];
+};
+
+const transactionHistoryTabs = [
+  { label: "Both", value: "both" },
+  { label: "Income", value: "income" },
+  { label: "Expense", value: "expense" },
+] as const;
 
 function todayInputValue() {
   return new Date().toISOString().slice(0, 10);
@@ -275,15 +298,21 @@ function getSignedAmount(transaction: TransactionView) {
 
 export function TransactionsClient({
   initialTransactions,
+  pagination,
   wallets,
   categories,
   budgetCategories,
 }: {
   initialTransactions: TransactionView[];
+  pagination: TransactionPagination;
   wallets: WalletOption[];
   categories: CategoryOption[];
   budgetCategories: BudgetCategoryOption[];
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
   const {
     preferences,
     isLoaded,
@@ -302,25 +331,118 @@ export function TransactionsClient({
   );
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const totals = useMemo(
-    () =>
-      transactions.reduce(
-        (summary, transaction) => {
-          if (transaction.type === TransactionType.INCOME) {
-            summary.income += transaction.amount;
-          }
-
-          if (transaction.type === TransactionType.EXPENSE) {
-            summary.expense += transaction.amount;
-          }
-
-          return summary;
-        },
-        { income: 0, expense: 0 },
-      ),
-    [transactions],
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
+  const [isMobilePaginationVisible, setIsMobilePaginationVisible] =
+    useState(true);
+  const [searchDraft, setSearchDraft] = useState(pagination.query);
+  const [totalCount, setTotalCount] = useState(pagination.totalCount);
+  const scrollIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
   );
+  const totalPages = Math.max(1, Math.ceil(totalCount / pagination.pageSize));
+  const pageStart =
+    totalCount === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1;
+  const pageEnd = Math.min(
+    totalCount,
+    (pagination.page - 1) * pagination.pageSize + transactions.length,
+  );
+  const activeTabLabel =
+    transactionHistoryTabs.find((tab) => tab.value === pagination.tab)?.label ||
+    "Both";
+
+  const handleTransactionScroll = useCallback(() => {
+    setIsMobilePaginationVisible(false);
+
+    if (scrollIdleTimeoutRef.current) {
+      clearTimeout(scrollIdleTimeoutRef.current);
+    }
+
+    scrollIdleTimeoutRef.current = setTimeout(() => {
+      setIsMobilePaginationVisible(true);
+      scrollIdleTimeoutRef.current = null;
+    }, 240);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("scroll", handleTransactionScroll, {
+      passive: true,
+    });
+
+    return () => {
+      window.removeEventListener("scroll", handleTransactionScroll);
+
+      if (scrollIdleTimeoutRef.current) {
+        clearTimeout(scrollIdleTimeoutRef.current);
+      }
+    };
+  }, [handleTransactionScroll]);
+
+  const transactionMatchesActiveTab = (transaction: TransactionView) => {
+    if (pagination.tab === "income") {
+      return transaction.type === TransactionType.INCOME;
+    }
+
+    if (pagination.tab === "expense") {
+      return transaction.type === TransactionType.EXPENSE;
+    }
+
+    return true;
+  };
+
+  const updateHistoryParams = (updates: {
+    page?: number;
+    pageSize?: number;
+    query?: string;
+    tab?: TransactionPagination["tab"];
+  }) => {
+    const params = new URLSearchParams(searchParams.toString());
+
+    if (updates.page !== undefined) {
+      if (updates.page <= 1) {
+        params.delete("page");
+      } else {
+        params.set("page", String(updates.page));
+      }
+    }
+
+    if (updates.pageSize !== undefined) {
+      if (updates.pageSize === 10) {
+        params.delete("limit");
+      } else {
+        params.set("limit", String(updates.pageSize));
+      }
+    }
+
+    if (updates.query !== undefined) {
+      const nextQuery = updates.query.trim();
+
+      if (nextQuery) {
+        params.set("q", nextQuery);
+      } else {
+        params.delete("q");
+      }
+    }
+
+    if (updates.tab !== undefined) {
+      if (updates.tab === "both") {
+        params.delete("tab");
+      } else {
+        params.set("tab", updates.tab);
+      }
+    }
+
+    const queryString = params.toString();
+
+    startTransition(() => {
+      router.push(queryString ? `${pathname}?${queryString}` : pathname);
+    });
+  };
+
+  const handleSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    updateHistoryParams({ page: 1, query: searchDraft });
+  };
 
   const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -361,11 +483,18 @@ export function TransactionsClient({
       // Optimistic insert: add to list immediately
       const newTransactions =
         data.transactions || (data.transaction ? [data.transaction] : []);
-      setTransactions((current) => [...newTransactions, ...current]);
+      const visibleNewTransactions = newTransactions.filter(
+        transactionMatchesActiveTab,
+      );
+      setTransactions((current) =>
+        [...visibleNewTransactions, ...current].slice(0, pagination.pageSize),
+      );
+      setTotalCount((current) => current + visibleNewTransactions.length);
       setCreateForm(createEmptyForm(wallets, categories, preferences));
+      setIsCreateDialogOpen(false);
 
       toast.success("Transaction added", { id: toastId });
-    } catch (error) {
+    } catch {
       const errorMsg = "Failed to create transaction. Please try again.";
       setError(errorMsg);
       toast.error(errorMsg, { id: toastId });
@@ -420,7 +549,7 @@ export function TransactionsClient({
       );
 
       toast.success("Transaction saved", { id: toastId });
-    } catch (error) {
+    } catch {
       const errorMsg = "Failed to update transaction. Please try again.";
       setError(errorMsg);
       toast.error(errorMsg, { id: toastId });
@@ -451,9 +580,10 @@ export function TransactionsClient({
       setTransactions((current) =>
         current.filter((transaction) => transaction.id !== transactionId),
       );
+      setTotalCount((current) => Math.max(0, current - 1));
 
       toast.success("Transaction deleted", { id: toastId });
-    } catch (error) {
+    } catch {
       const errorMsg = "Failed to delete transaction. Please try again.";
       setError(errorMsg);
       toast.error(errorMsg, { id: toastId });
@@ -463,91 +593,455 @@ export function TransactionsClient({
   };
 
   return (
-    <div className="flex min-h-0 w-full flex-col gap-6 overflow-auto lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:overflow-hidden">
-      <section className="flex min-h-0 flex-col gap-4">
-        <div className="grid gap-4 sm:grid-cols-3">
-          <SummaryCard label="Income" value={formatRupiah(totals.income)} />
-          <SummaryCard label="Expense" value={formatRupiah(totals.expense)} />
-          <SummaryCard
-            label="Net"
-            value={formatRupiah(totals.income - totals.expense)}
-          />
-        </div>
-
-        {error ? (
-          <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </p>
-        ) : null}
-
-        <div className="min-h-0 space-y-3 lg:overflow-y-auto lg:pr-2">
-          {transactions.length === 0 ? (
-            <EmptyState
-              icon="📊"
-              title="No transactions yet"
-              description="Start tracking your finances by adding your first transaction."
-            />
+    <>
+      <div
+        className="transaction-density flex min-h-0 w-full flex-col gap-4 overflow-auto lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-6 lg:overflow-hidden"
+        onScroll={handleTransactionScroll}
+      >
+        <section className="flex min-h-0 flex-col gap-3 sm:gap-4">
+          {error ? (
+            <p className="rounded-lg bg-red-50 px-3 py-2.5 text-xs text-red-700 sm:px-4 sm:py-3 sm:text-sm">
+              {error}
+            </p>
           ) : null}
 
-          {transactions.map((transaction) => (
+          <div className="rounded-lg bg-white p-3 shadow-sm sm:p-4">
+            <div
+              className="scrollbar-hide -mx-1 flex gap-1 overflow-x-auto px-1 sm:mx-0 sm:mb-4 sm:grid sm:grid-cols-3 sm:overflow-visible sm:rounded-lg sm:bg-zinc-100 sm:p-1"
+              aria-label="Transaction type filter"
+            >
+              {transactionHistoryTabs.map((tab) => {
+                const isActive = pagination.tab === tab.value;
+
+                return (
+                  <button
+                    key={tab.value}
+                    type="button"
+                    onClick={() =>
+                      updateHistoryParams({ page: 1, tab: tab.value })
+                    }
+                    disabled={isPending || isActive}
+                  className={
+                    isActive
+                      ? "shrink-0 rounded-full bg-zinc-950 px-4 py-2 text-xs font-semibold text-white shadow-sm sm:rounded-md sm:bg-white sm:px-3 sm:text-zinc-950"
+                      : "shrink-0 rounded-full border border-zinc-200 bg-white px-4 py-2 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-950 disabled:cursor-not-allowed sm:rounded-md sm:border-0 sm:bg-transparent sm:px-3 sm:text-sm"
+                  }
+                >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
+          <form
+            onSubmit={handleSearch}
+            className="hidden flex-col gap-2 sm:flex sm:flex-row sm:items-end sm:gap-3"
+          >
+            <div className="min-w-0 flex-1">
+              <label className="mb-1.5 block text-xs font-medium text-zinc-700 sm:text-sm">
+                Search history
+              </label>
+                <input
+                  value={searchDraft}
+                  onChange={(event) => setSearchDraft(event.target.value)}
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                  placeholder="Search note, wallet, category, amount"
+                  maxLength={100}
+                />
+              </div>
+
+            <div className="grid grid-cols-[1fr_auto] gap-2 sm:flex">
+              <button
+                type="submit"
+                disabled={isPending}
+                className="rounded-lg bg-zinc-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:text-sm"
+              >
+                Search
+              </button>
+                {pagination.query ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchDraft("");
+                      updateHistoryParams({ page: 1, query: "" });
+                  }}
+                  disabled={isPending}
+                  className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:text-sm"
+                >
+                  Clear
+                  </button>
+                ) : null}
+              </div>
+            </form>
+
+          <div className="mt-3 flex flex-col gap-2 border-t border-zinc-100 pt-3 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:pt-4">
+            <p className="text-xs text-zinc-500 sm:text-sm">
+              Showing {pageStart}-{pageEnd} of {totalCount} {activeTabLabel}{" "}
+              transactions
+            </p>
+            <label className="hidden items-center gap-2 text-xs font-medium text-zinc-700 sm:flex sm:text-sm">
+              Per page
+              <select
+                  value={pagination.pageSize}
+                  onChange={(event) =>
+                    updateHistoryParams({
+                      page: 1,
+                      pageSize: Number(event.target.value),
+                    })
+                  }
+                  disabled={isPending}
+                className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                  {pagination.pageSizeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+
+        <div className="min-h-0 space-y-2 sm:space-y-3 lg:overflow-y-auto lg:pr-2">
+            {transactions.length === 0 ? (
+              <EmptyState
+                icon="📊"
+                title={
+                  pagination.query
+                    ? "No matching transactions"
+                    : "No transactions yet"
+                }
+                description={
+                  pagination.query
+                    ? "Try another keyword or clear the search."
+                    : `No ${activeTabLabel.toLowerCase()} transactions on this page yet.`
+                }
+              />
+            ) : null}
+
+            {transactions.map((transaction) => (
             <article
               key={transaction.id}
-              className="rounded-lg bg-white p-5 shadow-sm"
+              className="rounded-lg bg-white p-3 shadow-sm sm:p-5"
             >
-              {editTransactionId === transaction.id ? (
-                <TransactionForm
-                  form={editForm}
-                  wallets={wallets}
-                  categories={categories}
-                  budgetCategories={budgetCategories}
-                  submitLabel="Save Transaction"
-                  isSubmitting={isSubmitting}
-                  onChange={setEditForm}
-                  onSubmit={handleUpdate}
-                  onCancel={() => setEditTransactionId(null)}
-                  originalTransaction={transaction}
-                />
-              ) : (
-                <TransactionRow
-                  transaction={transaction}
-                  isSubmitting={isSubmitting}
-                  onEdit={() => startEdit(transaction)}
-                  onDelete={() => handleDelete(transaction.id)}
-                />
-              )}
-            </article>
-          ))}
-        </div>
-      </section>
+                {editTransactionId === transaction.id ? (
+                  <TransactionForm
+                    form={editForm}
+                    wallets={wallets}
+                    categories={categories}
+                    budgetCategories={budgetCategories}
+                    submitLabel="Save Transaction"
+                    isSubmitting={isSubmitting}
+                    onChange={setEditForm}
+                    onSubmit={handleUpdate}
+                    onCancel={() => setEditTransactionId(null)}
+                    originalTransaction={transaction}
+                  />
+                ) : (
+                  <TransactionRow
+                    transaction={transaction}
+                    isSubmitting={isSubmitting}
+                    onEdit={() => startEdit(transaction)}
+                    onDelete={() => handleDelete(transaction.id)}
+                  />
+                )}
+              </article>
+            ))}
+          </div>
 
-      <aside className="flex min-h-[640px] flex-col overflow-hidden rounded-lg bg-white p-5 shadow-sm lg:min-h-0 lg:self-stretch">
-        <h2 className="text-lg font-semibold text-zinc-950">Add Transaction</h2>
-        <div className="mt-5 min-h-0 flex-1">
-          <TransactionForm
-            form={createForm}
-            wallets={wallets}
-            categories={categories}
-            budgetCategories={budgetCategories}
-            submitLabel="Add Transaction"
-            isSubmitting={isSubmitting}
-            onChange={setCreateForm}
-            onSubmit={handleCreate}
-            stickyActions
-          />
+        <div className="hidden flex-col gap-2 rounded-lg bg-white p-3 shadow-sm sm:flex sm:flex-row sm:items-center sm:justify-between sm:p-4">
+          <p className="text-xs font-medium text-zinc-600 sm:text-sm">
+            Page {pagination.page} of {totalPages}
+          </p>
+            <div className="grid grid-cols-2 gap-2 sm:flex">
+              <button
+                type="button"
+                onClick={() =>
+                  updateHistoryParams({
+                    page: Math.max(1, pagination.page - 1),
+                  })
+              }
+              disabled={pagination.page <= 1 || isPending}
+              className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:text-sm"
+            >
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  updateHistoryParams({
+                    page: Math.min(totalPages, pagination.page + 1),
+                  })
+              }
+              disabled={pagination.page >= totalPages || isPending}
+              className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:text-sm"
+            >
+                Next
+              </button>
+            </div>
+          </div>
+        </section>
+
+      <aside className="hidden min-h-[640px] flex-col overflow-hidden rounded-lg bg-white p-4 shadow-sm lg:flex lg:min-h-0 lg:self-stretch xl:p-5">
+        <h2 className="text-base font-semibold text-zinc-950">
+          Add Transaction
+        </h2>
+        <div className="mt-4 min-h-0 flex-1">
+            <TransactionForm
+              form={createForm}
+              wallets={wallets}
+              categories={categories}
+              budgetCategories={budgetCategories}
+              submitLabel="Add Transaction"
+              isSubmitting={isSubmitting}
+              onChange={setCreateForm}
+              onSubmit={handleCreate}
+              stickyActions
+            />
+          </div>
+        </aside>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setIsCreateDialogOpen(true)}
+        aria-label="Tambah transaksi"
+        title="Tambah transaksi"
+        className="fixed bottom-36 right-4 z-50 flex h-11 w-11 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 active:scale-95 lg:hidden"
+      >
+        <PlusIcon />
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setIsFilterDialogOpen(true)}
+        aria-label="Filter transactions"
+        title="Filter transactions"
+        className="fixed bottom-48 right-4 z-50 flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 shadow-lg transition hover:bg-zinc-50 active:scale-95 lg:hidden"
+      >
+        <FilterIcon />
+      </button>
+
+      <div
+        className={
+          isMobilePaginationVisible
+            ? "fixed bottom-24 left-4 right-20 z-40 rounded-lg border border-zinc-200 bg-white/95 p-2 shadow-lg backdrop-blur transition-all duration-200 sm:hidden"
+            : "pointer-events-none fixed bottom-24 left-4 right-20 z-40 translate-y-3 rounded-lg border border-zinc-200 bg-white/95 p-2 opacity-0 shadow-lg backdrop-blur transition-all duration-150 sm:hidden"
+        }
+      >
+        <p className="mb-1 text-center text-[11px] font-medium text-zinc-500">
+          Page {pagination.page} of {totalPages}
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              updateHistoryParams({
+                page: Math.max(1, pagination.page - 1),
+              })
+            }
+            disabled={pagination.page <= 1 || isPending}
+            className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Previous
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              updateHistoryParams({
+                page: Math.min(totalPages, pagination.page + 1),
+              })
+            }
+            disabled={pagination.page >= totalPages || isPending}
+            className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Next
+          </button>
         </div>
-      </aside>
-    </div>
+      </div>
+
+      {isCreateDialogOpen ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-end justify-center bg-zinc-950/45 p-3 lg:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="add-transaction-dialog-title"
+          onClick={() => setIsCreateDialogOpen(false)}
+        >
+          <div
+            className="flex h-[calc(100dvh-4rem)] max-h-[42rem] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white p-4 shadow-2xl sm:p-5"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-zinc-100 pb-3 sm:pb-4">
+              <h2
+                id="add-transaction-dialog-title"
+                className="text-base font-semibold text-zinc-950 sm:text-lg"
+              >
+                Add Transaction
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsCreateDialogOpen(false)}
+                aria-label="Tutup form transaksi"
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 transition hover:bg-zinc-50 sm:h-9 sm:w-9"
+              >
+                <span className="text-xl leading-none" aria-hidden="true">
+                  X
+                </span>
+              </button>
+            </div>
+            <div className="mt-3 min-h-0 flex-1 sm:mt-4">
+              <TransactionForm
+                form={createForm}
+                wallets={wallets}
+                categories={categories}
+                budgetCategories={budgetCategories}
+                submitLabel="Add Transaction"
+                isSubmitting={isSubmitting}
+                onChange={setCreateForm}
+                onSubmit={handleCreate}
+                stickyActions
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isFilterDialogOpen ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-end justify-center bg-zinc-950/45 p-3 lg:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="transaction-filter-dialog-title"
+          onClick={() => setIsFilterDialogOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl bg-white p-4 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-zinc-100 pb-3">
+              <h2
+                id="transaction-filter-dialog-title"
+                className="text-base font-semibold text-zinc-950"
+              >
+                Filter Transactions
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsFilterDialogOpen(false)}
+                aria-label="Close filter"
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600"
+              >
+                <span className="text-xl leading-none" aria-hidden="true">
+                  X
+                </span>
+              </button>
+            </div>
+
+            <form
+              onSubmit={(event) => {
+                handleSearch(event);
+                setIsFilterDialogOpen(false);
+              }}
+              className="mt-4 space-y-3"
+            >
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-zinc-700">
+                  Search history
+                </label>
+                <input
+                  value={searchDraft}
+                  onChange={(event) => setSearchDraft(event.target.value)}
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                  placeholder="Search note, wallet, category, amount"
+                  maxLength={100}
+                />
+              </div>
+
+              <label className="block text-xs font-medium text-zinc-700">
+                Per page
+                <select
+                  value={pagination.pageSize}
+                  onChange={(event) =>
+                    updateHistoryParams({
+                      page: 1,
+                      pageSize: Number(event.target.value),
+                    })
+                  }
+                  disabled={isPending}
+                  className="mt-1.5 w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {pagination.pageSizeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="submit"
+                  disabled={isPending}
+                  className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Apply
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchDraft("");
+                    updateHistoryParams({ page: 1, query: "" });
+                    setIsFilterDialogOpen(false);
+                  }}
+                  disabled={isPending}
+                  className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Clear
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 
-function SummaryCard({ label, value }: { label: string; value: string }) {
+function PlusIcon() {
   return (
-    <div className="rounded-lg bg-white p-5 shadow-sm">
-      <p className="text-sm text-zinc-500">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-zinc-950">
-        <SensitiveAmount>{value}</SensitiveAmount>
-      </p>
-    </div>
+    <svg
+      aria-hidden="true"
+      className="h-6 w-6"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
+function FilterIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-5 w-5"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 5h18" />
+      <path d="M6 12h12" />
+      <path d="M10 19h4" />
+    </svg>
   );
 }
 
@@ -566,31 +1060,31 @@ function TransactionRow({
   const isTransfer = transaction.type === TransactionType.TRANSFER;
 
   return (
-    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-lg font-semibold text-zinc-950">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+          <h2 className="text-base font-semibold text-zinc-950 sm:text-lg">
             {formatDisplayTitle(transaction.description)}
           </h2>
-          <span className="rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
+          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold text-zinc-700 sm:py-1 sm:text-xs">
             {getTransactionTypeLabel(transaction.type)}
           </span>
           {transaction.isPrepaid ? (
-            <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">
+            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700 sm:py-1 sm:text-xs">
               Paid Early
             </span>
           ) : null}
           {transaction.isUnbudgetedExpense ? (
-            <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 sm:py-1 sm:text-xs">
               Unbudgeted Expense
             </span>
           ) : null}
         </div>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-xs text-zinc-500 sm:text-sm">
           {new Date(transaction.transactionDate).toLocaleDateString("id-ID")} -{" "}
           {transaction.userName}
         </p>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-xs text-zinc-500 sm:text-sm">
           {isTransfer
             ? `${transaction.walletName} -> ${transaction.transferToWalletName}`
             : `${transaction.walletName} - ${transaction.categoryName}${
@@ -601,14 +1095,14 @@ function TransactionRow({
         </p>
       </div>
 
-      <div className="flex flex-col gap-3 sm:items-end">
+      <div className="flex flex-col gap-2 sm:items-end sm:gap-3">
         <p
           className={
             signedAmount > 0
-              ? "text-xl font-bold text-emerald-700"
+              ? "text-lg font-bold text-emerald-700 sm:text-xl"
               : signedAmount < 0
-                ? "text-xl font-bold text-red-700"
-                : "text-xl font-bold text-zinc-950"
+                ? "text-lg font-bold text-red-700 sm:text-xl"
+                : "text-lg font-bold text-zinc-950 sm:text-xl"
           }
         >
           <SensitiveAmount>
@@ -646,7 +1140,7 @@ function TransactionRow({
             <button
               type="button"
               onClick={onEdit}
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 sm:py-2 sm:text-sm"
             >
               Edit
             </button>
@@ -654,7 +1148,7 @@ function TransactionRow({
               type="button"
               onClick={onDelete}
               disabled={isSubmitting}
-              className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 sm:py-2 sm:text-sm"
             >
               Delete
             </button>
@@ -738,13 +1232,17 @@ function TransactionForm({
   return (
     <form
       onSubmit={onSubmit}
-      className={stickyActions ? "flex h-full min-h-0 flex-col" : "space-y-4"}
+      className={
+        stickyActions
+          ? "flex h-full min-h-0 flex-col"
+          : "space-y-3 sm:space-y-4"
+      }
     >
       <div
         className={
           stickyActions
-            ? "min-h-0 flex-1 space-y-4 overflow-y-auto pb-4 pr-1"
-            : "space-y-4"
+            ? "min-h-0 flex-1 space-y-3 overflow-y-auto pb-3 pr-1 sm:space-y-4 sm:pb-4"
+            : "space-y-3 sm:space-y-4"
         }
       >
         <div>
@@ -822,7 +1320,7 @@ function TransactionForm({
         ) : null}
 
         {form.type === TransactionType.INCOME ? (
-          <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4">
+          <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-3 sm:p-4">
             <label className="flex items-center gap-2 text-sm font-medium text-zinc-700">
               <input
                 type="checkbox"
@@ -843,7 +1341,7 @@ function TransactionForm({
                 Budgetable Income.
               </p>
             ) : null}
-            <label className="mt-4 flex items-center gap-2 text-sm font-medium text-zinc-700">
+            <label className="mt-3 flex items-center gap-2 text-sm font-medium text-zinc-700 sm:mt-4">
               <input
                 type="checkbox"
                 checked={form.allocateSavings}
@@ -1036,7 +1534,7 @@ function TransactionForm({
         )}
 
         {isTransfer && !onCancel ? (
-          <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4">
+          <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-3 sm:p-4">
             <label className="flex items-center gap-2 text-sm font-medium text-zinc-700">
               <input
                 type="checkbox"
@@ -1335,14 +1833,14 @@ function TransactionForm({
       <div
         className={
           stickyActions
-            ? "flex shrink-0 gap-2 border-t border-zinc-100 bg-white pt-4"
+            ? "flex shrink-0 gap-2 border-t border-zinc-100 bg-white pt-3 sm:pt-4"
             : "flex gap-2"
         }
       >
         <button
           type="submit"
           disabled={isSubmitting || wallets.length === 0}
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:text-sm"
         >
           {isSubmitting ? "Saving..." : submitLabel}
         </button>
@@ -1350,7 +1848,7 @@ function TransactionForm({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
+            className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 sm:px-4 sm:text-sm"
           >
             Cancel
           </button>
@@ -1437,19 +1935,19 @@ function AmountCalculator({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/40 p-3 sm:items-center"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/40 p-2 sm:items-center sm:p-3"
       role="dialog"
       aria-modal="true"
       aria-label="Amount calculator"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl"
+        className="w-full max-w-sm rounded-xl bg-white p-3 shadow-xl sm:rounded-2xl sm:p-4"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-base font-semibold text-zinc-950">
+            <h3 className="text-sm font-semibold text-zinc-950 sm:text-base">
               Kalkulator Amount
             </h3>
             <p className="text-xs text-zinc-500">
@@ -1459,20 +1957,22 @@ function AmountCalculator({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-500 hover:bg-zinc-100"
+            className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-500 hover:bg-zinc-100 sm:px-3 sm:py-2 sm:text-sm"
           >
             Tutup
           </button>
         </div>
 
-        <div className="mt-4 rounded-xl bg-zinc-950 px-4 py-3 text-right text-white">
+        <div className="mt-3 rounded-xl bg-zinc-950 px-3 py-2.5 text-right text-white sm:mt-4 sm:px-4 sm:py-3">
           <p className="min-h-5 truncate text-xs text-zinc-400">
             {expression || "Masukkan harga barang"}
           </p>
-          <p className="mt-2 text-2xl font-semibold">{formatRupiah(total)}</p>
+          <p className="mt-1.5 text-xl font-semibold sm:mt-2 sm:text-2xl">
+            {formatRupiah(total)}
+          </p>
         </div>
 
-        <div className="mt-4 grid grid-cols-4 gap-2">
+        <div className="mt-3 grid grid-cols-4 gap-1.5 sm:mt-4 sm:gap-2">
           {["7", "8", "9"].map((digit) => (
             <CalculatorButton key={digit} onClick={() => appendDigits(digit)}>
               {digit}
@@ -1515,7 +2015,7 @@ function AmountCalculator({
           type="button"
           onClick={() => onApply(total)}
           disabled={total <= 0}
-          className="mt-4 w-full rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-3 w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 sm:mt-4 sm:py-3"
         >
           Gunakan Total {total > 0 ? formatRupiah(total) : ""}
         </button>
@@ -1537,7 +2037,7 @@ function CalculatorButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-xl px-2 py-4 text-base font-semibold transition ${
+      className={`rounded-xl px-2 py-3 text-sm font-semibold transition sm:py-4 sm:text-base ${
         accent
           ? "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
           : "bg-zinc-100 text-zinc-900 hover:bg-zinc-200"

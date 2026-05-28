@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 const STORAGE_KEY = "finnnance_transaction_preferences";
 
@@ -10,24 +10,22 @@ interface TransactionPreferences {
   lastTransactionType?: "INCOME" | "EXPENSE" | "TRANSFER";
 }
 
-export function useTransactionPreferences() {
-  const [preferences, setPreferences] = useState<TransactionPreferences>({});
-  const [isLoaded, setIsLoaded] = useState(false);
+function readStoredPreferences(): TransactionPreferences {
+  if (typeof window === "undefined") {
+    return {};
+  }
 
-  // Load from localStorage on mount
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const stored = window.localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          setPreferences(JSON.parse(stored));
-        }
-      } catch {
-        // Ignore parse errors
-      }
-      setIsLoaded(true);
-    }
-  }, []);
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+
+    return stored ? JSON.parse(stored) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function useTransactionPreferences() {
+  const [preferences, setPreferences] = useState(readStoredPreferences);
 
   const savePreference = (key: keyof TransactionPreferences, value: string) => {
     const updated = { ...preferences, [key]: value };
@@ -44,7 +42,7 @@ export function useTransactionPreferences() {
 
   return {
     preferences,
-    isLoaded,
+    isLoaded: true,
     saveWalletPreference: (walletId: string) =>
       savePreference("lastWalletId", walletId),
     saveCategoryPreference: (categoryId: string) =>

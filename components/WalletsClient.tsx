@@ -65,6 +65,7 @@ export function WalletsClient({
   const [editForm, setEditForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
 
   const totalBalance = useMemo(
     () => wallets.reduce((total, wallet) => total + wallet.currentBalance, 0),
@@ -99,6 +100,7 @@ export function WalletsClient({
       }
 
       setCreateForm(emptyForm);
+      setIsCreateDialogOpen(false);
       await refreshWallets();
     } catch {
       setError("Failed to create wallet. Please try again.");
@@ -169,7 +171,8 @@ export function WalletsClient({
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+    <>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
       <section className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="rounded-lg bg-white p-5 shadow-sm">
@@ -271,7 +274,7 @@ export function WalletsClient({
         </div>
       </section>
 
-      <aside className="rounded-lg bg-white p-5 shadow-sm lg:sticky lg:top-6 lg:self-start">
+      <aside className="hidden rounded-lg bg-white p-5 shadow-sm lg:sticky lg:top-6 lg:block lg:self-start">
         <h2 className="text-lg font-semibold text-zinc-950">Add Wallet</h2>
         <div className="mt-5">
           <WalletForm
@@ -284,6 +287,78 @@ export function WalletsClient({
         </div>
       </aside>
     </div>
+
+      <button
+        type="button"
+        onClick={() => setIsCreateDialogOpen(true)}
+        aria-label="Add wallet"
+        title="Add wallet"
+        className="fixed bottom-36 right-4 z-50 flex h-11 w-11 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 active:scale-95 lg:hidden"
+      >
+        <PlusIcon />
+      </button>
+
+      {isCreateDialogOpen ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-end justify-center bg-zinc-950/45 p-3 lg:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="add-wallet-dialog-title"
+          onClick={() => setIsCreateDialogOpen(false)}
+        >
+          <div
+            className="flex max-h-[calc(100dvh-4rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white p-4 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-zinc-100 pb-3">
+              <h2
+                id="add-wallet-dialog-title"
+                className="text-base font-semibold text-zinc-950"
+              >
+                Add Wallet
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsCreateDialogOpen(false)}
+                aria-label="Close wallet form"
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 transition hover:bg-zinc-50"
+              >
+                <span className="text-xl leading-none" aria-hidden="true">
+                  X
+                </span>
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto pt-4">
+              <WalletForm
+                form={createForm}
+                submitLabel="Add Wallet"
+                isSubmitting={isSubmitting}
+                onChange={setCreateForm}
+                onSubmit={handleCreate}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-6 w-6"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </svg>
   );
 }
 

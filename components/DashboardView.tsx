@@ -600,7 +600,7 @@ function WidgetSlot({
 
   return (
     <section className={className}>
-      <WidgetHeader title="AI Insight" subtitle="OpenRouter-powered summary" />
+      <WidgetHeader title="AI Insight" subtitle="Gemini-powered summary" />
       <AIInsight
         insight={aiInsight}
         isLoading={aiInsightLoading}
@@ -1227,7 +1227,7 @@ function AIInsight({
     <div className={`rounded-2xl border p-4 ${toneClass}`}>
       {isLoading ? (
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
-          Generating with OpenRouter
+          Generating with Gemini
         </p>
       ) : null}
       <p className="text-sm font-semibold text-zinc-950">{insight.title}</p>
