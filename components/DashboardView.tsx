@@ -6,7 +6,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { AppLockButton } from "@/components/AppLockButton";
+import { AppMobileNav, AppSidebar } from "@/components/AppNavigation";
+import { SensitiveAmount } from "@/components/PrivacyMode";
 import type { DashboardData } from "@/lib/dashboard";
+import { formatDisplayTitle } from "@/lib/display-text";
 import { TransactionType } from "@/lib/prisma-enums";
 import { formatRupiah } from "@/lib/money";
 
@@ -30,6 +33,7 @@ type DashboardWidget = {
     | "top_categories"
     | "wallet_balances"
     | "budget_progress"
+    | "debt_summary"
     | "recent_transactions"
     | "ai_insight";
   visible: boolean;
@@ -157,23 +161,21 @@ const defaultWidgets: DashboardWidget[] = [
     size: "medium",
   },
   {
-    id: "ai_insight",
-    title: "AI Insight",
-    type: "ai_insight",
+    id: "debt_summary",
+    title: "Hutang Piutang",
+    type: "debt_summary",
     visible: true,
     order: 6,
     size: "medium",
   },
-];
-
-const navItems = [
-  { label: "Dashboard", href: "/" },
-  { label: "Transactions", href: "/transactions" },
-  { label: "Wallets", href: "/wallets" },
-  { label: "Savings", href: "/savings" },
-  { label: "Budget", href: "/budgets" },
-  { label: "AI Assistant", href: "/" },
-  { label: "Settings", href: "/settings" },
+  {
+    id: "ai_insight",
+    title: "AI Insight",
+    type: "ai_insight",
+    visible: true,
+    order: 7,
+    size: "medium",
+  },
 ];
 
 function getInitialWidgets() {
@@ -371,7 +373,7 @@ export function DashboardView({
 
   return (
     <div className="min-h-screen bg-zinc-100 text-zinc-950">
-      <DesktopSidebar />
+      <AppSidebar />
 
       <div className="lg:pl-60">
         <header className="sticky top-0 z-20 border-b border-zinc-200 bg-zinc-100/90 backdrop-blur">
@@ -395,7 +397,9 @@ export function DashboardView({
                 >
                   {ownerOptions.map((option) => (
                     <option key={option.id} value={option.id}>
-                      {option.id === user.id ? `Saya - ${option.name}` : option.name}
+                      {option.id === user.id
+                        ? `Saya - ${option.name}`
+                        : option.name}
                     </option>
                   ))}
                   {canViewCombined ? (
@@ -506,7 +510,7 @@ export function DashboardView({
         </main>
       </div>
 
-      <MobileNav />
+      <AppMobileNav />
 
       {isCustomizeOpen ? (
         <CustomizeDashboardModal
@@ -516,63 +520,6 @@ export function DashboardView({
         />
       ) : null}
     </div>
-  );
-}
-
-function DesktopSidebar() {
-  return (
-    <aside className="fixed inset-y-0 left-0 hidden w-60 border-r border-zinc-200 bg-white px-4 py-5 lg:block">
-      <div className="flex items-center gap-3 px-2">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 text-sm font-bold text-white">
-          F
-        </div>
-        <div>
-          <p className="text-sm font-semibold text-zinc-950">
-            Finnnance Tracker
-          </p>
-          <p className="text-xs text-zinc-500">Private workspace</p>
-        </div>
-      </div>
-
-      <nav className="mt-8 space-y-1">
-        {navItems.map((item) => (
-          <Link
-            key={item.label}
-            href={item.href}
-            className={
-              item.label === "Dashboard"
-                ? "flex items-center justify-between rounded-lg bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700"
-                : "flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-950"
-            }
-          >
-            <span>{item.label}</span>
-          </Link>
-        ))}
-      </nav>
-
-      <div className="absolute bottom-5 left-4 right-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
-        <p className="text-sm font-semibold text-zinc-950">Next</p>
-        <p className="mt-1 text-xs leading-5 text-zinc-500">
-          Split bills and deeper analytics are next on the roadmap.
-        </p>
-      </div>
-    </aside>
-  );
-}
-
-function MobileNav() {
-  return (
-    <nav className="fixed bottom-0 left-0 right-0 z-30 grid grid-cols-4 border-t border-zinc-200 bg-white px-2 py-2 lg:hidden">
-      {navItems.slice(0, 4).map((item) => (
-        <Link
-          key={item.label}
-          href={item.href}
-          className="rounded-lg px-2 py-2 text-center text-xs font-medium text-zinc-600"
-        >
-          {item.label}
-        </Link>
-      ))}
-    </nav>
   );
 }
 
@@ -642,6 +589,15 @@ function WidgetSlot({
     );
   }
 
+  if (widget.type === "debt_summary") {
+    return (
+      <section className={className}>
+        <WidgetHeader title="Hutang Piutang" subtitle="Active debt position" />
+        <DebtSummary debt={data.debt} />
+      </section>
+    );
+  }
+
   return (
     <section className={className}>
       <WidgetHeader title="AI Insight" subtitle="OpenRouter-powered summary" />
@@ -683,6 +639,7 @@ function SummaryMetricCard({
   detail: string;
   tone: "blue" | "green" | "red";
 }) {
+  const amountPlaceholder = value.trim().endsWith("%") ? "**%" : "Rp.*******";
   const toneClass =
     tone === "blue"
       ? "bg-blue-50 text-blue-700"
@@ -696,7 +653,9 @@ function SummaryMetricCard({
         <div>
           <p className="text-sm font-medium text-zinc-500">{label}</p>
           <p className="mt-3 text-2xl font-bold tracking-normal text-zinc-950">
-            {value}
+            <SensitiveAmount placeholder={amountPlaceholder}>
+              {value}
+            </SensitiveAmount>
           </p>
         </div>
         <span
@@ -765,7 +724,9 @@ function MonthlySnapshot({ data }: { data: DashboardData }) {
                 isHealthy ? "text-emerald-700" : "text-red-600"
               }`}
             >
-              {formatRupiah(data.summary.netCashflow)}
+              <SensitiveAmount>
+                {formatRupiah(data.summary.netCashflow)}
+              </SensitiveAmount>
             </p>
           </div>
           <span
@@ -824,24 +785,51 @@ function MonthlySnapshot({ data }: { data: DashboardData }) {
         </div>
         <div className="mt-3 grid gap-2 text-xs text-zinc-500 sm:grid-cols-3">
           <span>
-            {formatRupiah(data.budget.budgetableIncome)} budgetable income
+            <SensitiveAmount>
+              {formatRupiah(data.budget.budgetableIncome)}
+            </SensitiveAmount>{" "}
+            budgetable income
           </span>
-          <span>{formatRupiah(data.budget.totalBudget)} budget set</span>
           <span>
-            {formatRupiah(data.budget.availableToBudget)} available to budget
+            <SensitiveAmount>
+              {formatRupiah(data.budget.totalBudget)}
+            </SensitiveAmount>{" "}
+            budget set
+          </span>
+          <span>
+            <SensitiveAmount>
+              {formatRupiah(data.budget.availableToBudget)}
+            </SensitiveAmount>{" "}
+            available to budget
           </span>
         </div>
         {data.budget.fundingShortfall > 0 ? (
           <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
-            Funding shortfall: {formatRupiah(data.budget.fundingShortfall)}.
-            Sebagian savings atau budget aktif belum ditopang saldo wallet.
+            Funding shortfall:{" "}
+            <SensitiveAmount>
+              {formatRupiah(data.budget.fundingShortfall)}
+            </SensitiveAmount>
+            . Sebagian savings atau budget aktif belum ditopang saldo wallet.
           </p>
         ) : null}
         <div className="mt-3 grid gap-2 text-xs text-zinc-500 sm:grid-cols-3">
-          <span>{formatRupiah(data.savings.addedThisMonth)} added savings</span>
-          <span>{formatRupiah(data.savings.usedThisMonth)} used savings</span>
           <span>
-            {formatRupiah(data.savings.adjustmentThisMonth)} adjustments
+            <SensitiveAmount>
+              {formatRupiah(data.savings.addedThisMonth)}
+            </SensitiveAmount>{" "}
+            added savings
+          </span>
+          <span>
+            <SensitiveAmount>
+              {formatRupiah(data.savings.usedThisMonth)}
+            </SensitiveAmount>{" "}
+            used savings
+          </span>
+          <span>
+            <SensitiveAmount>
+              {formatRupiah(data.savings.adjustmentThisMonth)}
+            </SensitiveAmount>{" "}
+            adjustments
           </span>
         </div>
       </div>
@@ -849,6 +837,88 @@ function MonthlySnapshot({ data }: { data: DashboardData }) {
       <p className="text-xs text-zinc-500">
         {data.summary.transactionCount} transaksi bulan ini •{" "}
         {data.wallets.length} wallet aktif
+      </p>
+    </div>
+  );
+}
+
+function DebtSummary({ debt }: { debt: DashboardData["debt"] }) {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <MiniMetric
+          label="Piutang"
+          value={formatRupiah(debt.totalActiveReceivable)}
+          tone="green"
+        />
+        <MiniMetric
+          label="Hutang"
+          value={formatRupiah(debt.totalActivePayable)}
+          tone="red"
+        />
+        <MiniMetric
+          label="Net"
+          value={formatRupiah(debt.netDebtPosition)}
+          tone={debt.netDebtPosition >= 0 ? "green" : "red"}
+        />
+      </div>
+
+      {debt.upcomingDueDates.length === 0 ? (
+        <EmptyState text="No active due dates." />
+      ) : (
+        <div className="space-y-2">
+          {debt.upcomingDueDates.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm"
+            >
+              <div>
+                <p className="font-semibold text-zinc-950">{item.personName}</p>
+                <p className="text-xs text-zinc-500">
+                  {item.type === "RECEIVABLE" ? "Piutang" : "Hutang"} due{" "}
+                  {item.dueDate
+                    ? new Date(item.dueDate).toLocaleDateString("id-ID")
+                    : "-"}
+                </p>
+              </div>
+              <p className="font-bold text-zinc-950">
+                <SensitiveAmount>
+                  {formatRupiah(item.remainingAmount)}
+                </SensitiveAmount>
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Link
+        href="/debts"
+        className="inline-flex rounded-lg border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+      >
+        Open Debt Module
+      </Link>
+    </div>
+  );
+}
+
+function MiniMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "green" | "red";
+}) {
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+      <p className="text-xs font-medium text-zinc-500">{label}</p>
+      <p
+        className={`mt-2 text-sm font-bold ${
+          tone === "green" ? "text-emerald-700" : "text-red-700"
+        }`}
+      >
+        <SensitiveAmount>{value}</SensitiveAmount>
       </p>
     </div>
   );
@@ -870,7 +940,7 @@ function TopCategories({
           <div className="flex items-center justify-between gap-3 text-sm">
             <span className="font-medium text-zinc-700">{category.name}</span>
             <span className="font-semibold text-zinc-950">
-              {formatRupiah(category.amount)}
+              <SensitiveAmount>{formatRupiah(category.amount)}</SensitiveAmount>
             </span>
           </div>
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-100">
@@ -907,7 +977,9 @@ function WalletBalances({ wallets }: { wallets: WalletBalanceView[] }) {
             </p>
           </div>
           <p className="text-sm font-bold text-zinc-950">
-            {formatRupiah(wallet.currentBalance)}
+            <SensitiveAmount>
+              {formatRupiah(wallet.currentBalance)}
+            </SensitiveAmount>
           </p>
         </div>
       ))}
@@ -970,43 +1042,53 @@ function BudgetProgress({ budget }: { budget: BudgetView }) {
         <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
           <p className="text-zinc-500">Budgetable Income</p>
           <p className="mt-1 font-semibold text-zinc-950">
-            {formatRupiah(budget.budgetableIncome)}
+            <SensitiveAmount>
+              {formatRupiah(budget.budgetableIncome)}
+            </SensitiveAmount>
           </p>
         </div>
         <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
           <p className="text-zinc-500">Available to Budget</p>
           <p className="mt-1 font-semibold text-zinc-950">
-            {formatRupiah(budget.availableToBudget)}
+            <SensitiveAmount>
+              {formatRupiah(budget.availableToBudget)}
+            </SensitiveAmount>
           </p>
         </div>
         <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
           <p className="text-zinc-500">Total Budget Set</p>
           <p className="mt-1 font-semibold text-zinc-950">
-            {formatRupiah(budget.totalBudget)}
+            <SensitiveAmount>
+              {formatRupiah(budget.totalBudget)}
+            </SensitiveAmount>
           </p>
         </div>
         <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
           <p className="text-zinc-500">Budgeted Spent</p>
           <p className="mt-1 font-semibold text-zinc-950">
-            {formatRupiah(budget.spent)}
+            <SensitiveAmount>{formatRupiah(budget.spent)}</SensitiveAmount>
           </p>
         </div>
         <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
           <p className="text-zinc-500">Remaining Budget</p>
           <p className="mt-1 font-semibold text-zinc-950">
-            {formatRupiah(budget.remaining)}
+            <SensitiveAmount>{formatRupiah(budget.remaining)}</SensitiveAmount>
           </p>
         </div>
         <div className="rounded-xl bg-amber-50 px-3 py-2 ring-1 ring-amber-200">
           <p className="text-amber-700">Unbudgeted Expense</p>
           <p className="mt-1 font-semibold text-amber-800">
-            {formatRupiah(budget.unbudgetedSpent)}
+            <SensitiveAmount>
+              {formatRupiah(budget.unbudgetedSpent)}
+            </SensitiveAmount>
           </p>
         </div>
         <div className="rounded-xl bg-red-50 px-3 py-2 ring-1 ring-red-200">
           <p className="text-red-700">Funding Shortfall</p>
           <p className="mt-1 font-semibold text-red-800">
-            {formatRupiah(budget.fundingShortfall)}
+            <SensitiveAmount>
+              {formatRupiah(budget.fundingShortfall)}
+            </SensitiveAmount>
           </p>
         </div>
       </div>
@@ -1025,12 +1107,15 @@ function BudgetProgress({ budget }: { budget: BudgetView }) {
               </div>
               <div className="text-right">
                 <p className="font-semibold text-zinc-950">
-                  {formatRupiah(item.amount)}
+                  <SensitiveAmount>{formatRupiah(item.amount)}</SensitiveAmount>
                 </p>
                 <p className="mt-1 text-xs text-zinc-500">
-                  {item.remaining >= 0
-                    ? `${formatRupiah(item.remaining)} left`
-                    : `${formatRupiah(Math.abs(item.remaining))} over`}
+                  <SensitiveAmount>
+                    {item.remaining >= 0
+                      ? formatRupiah(item.remaining)
+                      : formatRupiah(Math.abs(item.remaining))}
+                  </SensitiveAmount>{" "}
+                  {item.remaining >= 0 ? "left" : "over"}
                 </p>
               </div>
             </div>
@@ -1051,7 +1136,10 @@ function BudgetProgress({ budget }: { budget: BudgetView }) {
               />
             </div>
             <div className="mt-2 flex items-center justify-between text-xs text-zinc-500">
-              <span>{formatRupiah(item.spent)} spent</span>
+              <span>
+                <SensitiveAmount>{formatRupiah(item.spent)}</SensitiveAmount>{" "}
+                spent
+              </span>
               <span
                 className={item.status === "OVERBUDGET" ? "text-red-700" : ""}
               >
@@ -1083,7 +1171,7 @@ function RecentTransactions({
         >
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-zinc-950">
-              {transaction.description}
+              {formatDisplayTitle(transaction.description)}
             </p>
             <p className="mt-1 truncate text-xs text-zinc-500">
               {transaction.budgetCategoryName ||
@@ -1100,9 +1188,18 @@ function RecentTransactions({
                   : "text-sm font-bold text-zinc-950"
             }
           >
-            {transaction.type === TransactionType.EXPENSE
-              ? `-${formatRupiah(transaction.amount)}`
-              : formatRupiah(transaction.amount)}
+            {transaction.type === TransactionType.EXPENSE ? (
+              <>
+                -
+                <SensitiveAmount>
+                  {formatRupiah(transaction.amount)}
+                </SensitiveAmount>
+              </>
+            ) : (
+              <SensitiveAmount>
+                {formatRupiah(transaction.amount)}
+              </SensitiveAmount>
+            )}
           </p>
         </div>
       ))}

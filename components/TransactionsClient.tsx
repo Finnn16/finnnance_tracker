@@ -1,11 +1,14 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import {
   calculateBudgetableIncomeAmount,
   monthInputValue,
 } from "@/lib/budgets";
+import { SensitiveAmount } from "@/components/PrivacyMode";
+import { formatDisplayTitle } from "@/lib/display-text";
 import { TransactionType } from "@/lib/prisma-enums";
 import {
   formatAmountInput,
@@ -17,6 +20,8 @@ import {
   getTransactionTypeLabel,
   transactionTypeOptions,
 } from "@/lib/transactions";
+import { useTransactionPreferences } from "@/hooks/useTransactionPreferences";
+import { EmptyState } from "@/components/EmptyState";
 
 type WalletOption = {
   id: string;
@@ -137,19 +142,41 @@ function getBudgetCategoryIdForMonth(
 function createEmptyForm(
   wallets: WalletOption[],
   categories: CategoryOption[],
+  preferences?: {
+    lastWalletId?: string;
+    lastCategoryId?: string;
+    lastExpenseCategoryId?: string;
+    lastTransactionType?: "INCOME" | "EXPENSE" | "TRANSFER";
+  },
 ): TransactionFormState {
-  const defaultWallet =
-    wallets.find((wallet) => wallet.isDefault) || wallets[0];
+  const defaultWallet = preferences?.lastWalletId
+    ? wallets.find((w) => w.id === preferences.lastWalletId)
+    : wallets.find((wallet) => wallet.isDefault) || wallets[0];
+
+  const transactionType =
+    preferences?.lastTransactionType || TransactionType.EXPENSE;
   const transactionDate = todayInputValue();
   const defaultBudgetMonth = monthInputValue(new Date(transactionDate));
 
+  const defaultCategoryGroup = getDefaultCategoryGroup(
+    categories,
+    transactionType,
+  );
+  const lastCategoryId =
+    transactionType === TransactionType.EXPENSE
+      ? preferences?.lastExpenseCategoryId
+      : preferences?.lastCategoryId;
+  const lastCategory = lastCategoryId
+    ? categories.find((c) => c.id === lastCategoryId)
+    : null;
+
   return {
-    type: TransactionType.EXPENSE,
+    type: transactionType,
     amount: "",
     walletId: defaultWallet?.id || "",
     transferToWalletId: "",
-    categoryGroup: getDefaultCategoryGroup(categories, TransactionType.EXPENSE),
-    categoryId: "",
+    categoryGroup: lastCategory?.group || defaultCategoryGroup,
+    categoryId: lastCategory?.id || "",
     budgetCategoryId: "",
     description: "",
     transactionDate,
@@ -257,9 +284,15 @@ export function TransactionsClient({
   categories: CategoryOption[];
   budgetCategories: BudgetCategoryOption[];
 }) {
+  const {
+    preferences,
+    isLoaded,
+    saveWalletPreference,
+    saveExpenseCategoryPreference,
+  } = useTransactionPreferences();
   const [transactions, setTransactions] = useState(initialTransactions);
   const [createForm, setCreateForm] = useState(() =>
-    createEmptyForm(wallets, categories),
+    createEmptyForm(wallets, categories, isLoaded ? preferences : undefined),
   );
   const [editTransactionId, setEditTransactionId] = useState<string | null>(
     null,
@@ -294,6 +327,9 @@ export function TransactionsClient({
     setError(null);
     setIsSubmitting(true);
 
+    // Show optimistic toast
+    const toastId = toast.loading("Adding transaction...");
+
     try {
       const response = await fetch("/api/transactions", {
         method: "POST",
@@ -307,17 +343,32 @@ export function TransactionsClient({
       };
 
       if (!response.ok || (!data.transaction && !data.transactions)) {
-        setError(data.error || "Failed to create transaction.");
+        const errorMsg = data.error || "Failed to create transaction.";
+        setError(errorMsg);
+        toast.error(errorMsg, { id: toastId });
         return;
       }
 
-      setCreateForm(createEmptyForm(wallets, categories));
-      setTransactions((current) => [
-        ...(data.transactions || (data.transaction ? [data.transaction] : [])),
-        ...current,
-      ]);
-    } catch {
-      setError("Failed to create transaction. Please try again.");
+      // Save preferences for next transaction
+      saveWalletPreference(createForm.walletId);
+      if (
+        createForm.type === TransactionType.EXPENSE &&
+        createForm.categoryId
+      ) {
+        saveExpenseCategoryPreference(createForm.categoryId);
+      }
+
+      // Optimistic insert: add to list immediately
+      const newTransactions =
+        data.transactions || (data.transaction ? [data.transaction] : []);
+      setTransactions((current) => [...newTransactions, ...current]);
+      setCreateForm(createEmptyForm(wallets, categories, preferences));
+
+      toast.success("Transaction added", { id: toastId });
+    } catch (error) {
+      const errorMsg = "Failed to create transaction. Please try again.";
+      setError(errorMsg);
+      toast.error(errorMsg, { id: toastId });
     } finally {
       setIsSubmitting(false);
     }
@@ -339,6 +390,8 @@ export function TransactionsClient({
     setError(null);
     setIsSubmitting(true);
 
+    const toastId = toast.loading("Saving transaction...");
+
     try {
       const response = await fetch(`/api/transactions/${editTransactionId}`, {
         method: "PATCH",
@@ -351,7 +404,9 @@ export function TransactionsClient({
       };
 
       if (!response.ok || !data.transaction) {
-        setError(data.error || "Failed to update transaction.");
+        const errorMsg = data.error || "Failed to update transaction.";
+        setError(errorMsg);
+        toast.error(errorMsg, { id: toastId });
         return;
       }
 
@@ -363,8 +418,12 @@ export function TransactionsClient({
             : transaction,
         ),
       );
-    } catch {
-      setError("Failed to update transaction. Please try again.");
+
+      toast.success("Transaction saved", { id: toastId });
+    } catch (error) {
+      const errorMsg = "Failed to update transaction. Please try again.";
+      setError(errorMsg);
+      toast.error(errorMsg, { id: toastId });
     } finally {
       setIsSubmitting(false);
     }
@@ -374,6 +433,8 @@ export function TransactionsClient({
     setError(null);
     setIsSubmitting(true);
 
+    const toastId = toast.loading("Deleting transaction...");
+
     try {
       const response = await fetch(`/api/transactions/${transactionId}`, {
         method: "DELETE",
@@ -381,23 +442,29 @@ export function TransactionsClient({
       const data = (await response.json()) as { error?: string };
 
       if (!response.ok) {
-        setError(data.error || "Failed to delete transaction.");
+        const errorMsg = data.error || "Failed to delete transaction.";
+        setError(errorMsg);
+        toast.error(errorMsg, { id: toastId });
         return;
       }
 
       setTransactions((current) =>
         current.filter((transaction) => transaction.id !== transactionId),
       );
-    } catch {
-      setError("Failed to delete transaction. Please try again.");
+
+      toast.success("Transaction deleted", { id: toastId });
+    } catch (error) {
+      const errorMsg = "Failed to delete transaction. Please try again.";
+      setError(errorMsg);
+      toast.error(errorMsg, { id: toastId });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
-      <section className="space-y-4">
+    <div className="flex min-h-0 w-full flex-col gap-6 overflow-auto lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:overflow-hidden">
+      <section className="flex min-h-0 flex-col gap-4">
         <div className="grid gap-4 sm:grid-cols-3">
           <SummaryCard label="Income" value={formatRupiah(totals.income)} />
           <SummaryCard label="Expense" value={formatRupiah(totals.expense)} />
@@ -413,11 +480,13 @@ export function TransactionsClient({
           </p>
         ) : null}
 
-        <div className="space-y-3">
+        <div className="min-h-0 space-y-3 lg:overflow-y-auto lg:pr-2">
           {transactions.length === 0 ? (
-            <div className="rounded-lg bg-white p-6 text-sm text-zinc-500 shadow-sm">
-              No transactions yet.
-            </div>
+            <EmptyState
+              icon="📊"
+              title="No transactions yet"
+              description="Start tracking your finances by adding your first transaction."
+            />
           ) : null}
 
           {transactions.map((transaction) => (
@@ -451,9 +520,9 @@ export function TransactionsClient({
         </div>
       </section>
 
-      <aside className="rounded-lg bg-white p-5 shadow-sm lg:sticky lg:top-6 lg:self-start">
+      <aside className="flex min-h-[640px] flex-col overflow-hidden rounded-lg bg-white p-5 shadow-sm lg:min-h-0 lg:self-stretch">
         <h2 className="text-lg font-semibold text-zinc-950">Add Transaction</h2>
-        <div className="mt-5">
+        <div className="mt-5 min-h-0 flex-1">
           <TransactionForm
             form={createForm}
             wallets={wallets}
@@ -463,6 +532,7 @@ export function TransactionsClient({
             isSubmitting={isSubmitting}
             onChange={setCreateForm}
             onSubmit={handleCreate}
+            stickyActions
           />
         </div>
       </aside>
@@ -474,7 +544,9 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg bg-white p-5 shadow-sm">
       <p className="text-sm text-zinc-500">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-zinc-950">{value}</p>
+      <p className="mt-2 text-2xl font-bold text-zinc-950">
+        <SensitiveAmount>{value}</SensitiveAmount>
+      </p>
     </div>
   );
 }
@@ -498,7 +570,7 @@ function TransactionRow({
       <div>
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-lg font-semibold text-zinc-950">
-            {transaction.description}
+            {formatDisplayTitle(transaction.description)}
           </h2>
           <span className="rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
             {getTransactionTypeLabel(transaction.type)}
@@ -539,14 +611,19 @@ function TransactionRow({
                 : "text-xl font-bold text-zinc-950"
           }
         >
-          {isTransfer
-            ? formatRupiah(transaction.amount)
-            : formatRupiah(signedAmount)}
+          <SensitiveAmount>
+            {isTransfer
+              ? formatRupiah(transaction.amount)
+              : formatRupiah(signedAmount)}
+          </SensitiveAmount>
         </p>
         {transaction.type === TransactionType.INCOME &&
         transaction.savingsAmount ? (
           <p className="text-xs font-medium text-blue-700">
-            Savings: {formatRupiah(transaction.savingsAmount)}
+            Savings:{" "}
+            <SensitiveAmount>
+              {formatRupiah(transaction.savingsAmount)}
+            </SensitiveAmount>
           </p>
         ) : null}
         {transaction.type === TransactionType.INCOME ? (
@@ -554,7 +631,9 @@ function TransactionRow({
             <p className="text-xs font-medium text-emerald-700">
               Budgetable for{" "}
               {formatBudgetPeriod(transaction.budgetMonth.slice(0, 7))}:{" "}
-              {formatRupiah(transaction.budgetableAmount)}
+              <SensitiveAmount>
+                {formatRupiah(transaction.budgetableAmount)}
+              </SensitiveAmount>
             </p>
           ) : (
             <p className="text-xs font-medium text-zinc-500">
@@ -597,6 +676,7 @@ function TransactionForm({
   onSubmit,
   onCancel,
   originalTransaction,
+  stickyActions = false,
 }: {
   form: TransactionFormState;
   wallets: WalletOption[];
@@ -608,6 +688,7 @@ function TransactionForm({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onCancel?: () => void;
   originalTransaction?: TransactionView;
+  stickyActions?: boolean;
 }) {
   const [isAmountCalculatorOpen, setIsAmountCalculatorOpen] = useState(false);
   const selectableCategories = categories.filter(
@@ -655,584 +736,609 @@ function TransactionForm({
       : currentCategoryRemaining - budgetImpactAmount;
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
-      <div>
-        <label className="mb-2 block text-sm font-medium text-zinc-700">
-          Type
-        </label>
-        <select
-          value={form.type}
-          onChange={(event) =>
-            onChange({
-              ...form,
-              type: event.target.value as TransactionType,
-              categoryGroup: getDefaultCategoryGroup(
-                categories,
-                event.target.value as TransactionType,
-              ),
-              categoryId: "",
-              budgetCategoryId: "",
-              transferToWalletId: "",
-              isUnbudgetedExpense: false,
-              allocateToBudget: true,
-              allocateSavings: false,
-              savingsAmount: "",
-              savingsNote: "",
-              transferFeeEnabled: false,
-              transferFeeAmount: "",
-            })
-          }
-          className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-        >
-          {transactionTypeOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <label className="mb-2 block text-sm font-medium text-zinc-700">
-          Amount
-        </label>
-        <div className="flex gap-2">
-          <input
-            value={form.amount}
-            onClick={() => setIsAmountCalculatorOpen(true)}
-            readOnly
-            inputMode="none"
-            className="w-full cursor-pointer rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-            placeholder="Tap untuk hitung amount"
-            required
-          />
-          <button
-            type="button"
-            onClick={() => setIsAmountCalculatorOpen(true)}
-            className="shrink-0 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
-          >
-            Hitung
-          </button>
-        </div>
-        <p className="mt-2 text-xs text-zinc-500">
-          Jumlahkan beberapa barang langsung di sini.
-        </p>
-      </div>
-
-      {isAmountCalculatorOpen ? (
-        <AmountCalculator
-          initialAmount={parsedAmount}
-          onApply={(amount) => {
-            onChange({ ...form, amount: formatAmountInput(amount) });
-            setIsAmountCalculatorOpen(false);
-          }}
-          onClose={() => setIsAmountCalculatorOpen(false)}
-        />
-      ) : null}
-
-      {form.type === TransactionType.INCOME ? (
-        <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4">
-          <label className="flex items-center gap-2 text-sm font-medium text-zinc-700">
-            <input
-              type="checkbox"
-              checked={form.allocateToBudget}
-              onChange={(event) =>
-                onChange({
-                  ...form,
-                  allocateToBudget: event.target.checked,
-                })
-              }
-              className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
-            />
-            Gunakan income ini untuk budget
-          </label>
-          {!form.allocateToBudget ? (
-            <p className="mt-2 text-xs text-zinc-500">
-              Income tetap masuk wallet dan cashflow, tetapi tidak menambah
-              Budgetable Income.
-            </p>
-          ) : null}
-          <label className="mt-4 flex items-center gap-2 text-sm font-medium text-zinc-700">
-            <input
-              type="checkbox"
-              checked={form.allocateSavings}
-              onChange={(event) =>
-                onChange({
-                  ...form,
-                  allocateSavings: event.target.checked,
-                  savingsAmount: event.target.checked ? form.savingsAmount : "",
-                  savingsNote: event.target.checked ? form.savingsNote : "",
-                })
-              }
-              className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
-            />
-            Masukkan sebagian ke Savings
-          </label>
-
-          {form.allocateSavings ? (
-            <div className="mt-3 space-y-3">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-zinc-700">
-                  Savings Amount
-                </label>
-                <input
-                  value={form.savingsAmount}
-                  onChange={(event) =>
-                    onChange({
-                      ...form,
-                      savingsAmount: normalizeAmountInput(event.target.value),
-                    })
-                  }
-                  inputMode="numeric"
-                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                  placeholder="Rp 1.000.000"
-                />
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-medium text-zinc-700">
-                  Savings Note
-                </label>
-                <input
-                  value={form.savingsNote}
-                  onChange={(event) =>
-                    onChange({ ...form, savingsNote: event.target.value })
-                  }
-                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                  placeholder="Savings from salary"
-                  maxLength={120}
-                />
-              </div>
-
-            </div>
-          ) : null}
-          <div className="mt-3 rounded-lg bg-white px-3 py-3 text-xs text-zinc-600 ring-1 ring-zinc-200">
-            <p>Preview allocation</p>
-            <p className="mt-2">Income tercatat: {formatRupiah(parsedAmount)}</p>
-            <p>Savings bertambah: {formatRupiah(parsedSavingsAmount)}</p>
-            {form.allocateToBudget ? (
-              <>
-                <p className="mt-2 font-semibold text-emerald-700">
-                  Budgetable for {formatBudgetPeriod(form.budgetMonth)}:{" "}
-                  {formatRupiah(parsedBudgetableAmount)}
-                </p>
-                <p className="mt-2 text-zinc-500">
-                  Sisa income menjadi saldo budgetable untuk periode pilihan.
-                </p>
-              </>
-            ) : (
-              <p className="mt-2 font-semibold text-zinc-600">
-                Budgetable Income: {formatRupiah(0)}
-              </p>
-            )}
-            {form.allocateToBudget &&
-            form.allocateSavings &&
-            parsedAmount > 0 &&
-            parsedBudgetableAmount === 0 ? (
-              <p className="mt-2 font-medium text-blue-700">
-                Income ini sepenuhnya masuk Savings dan tidak menambah saldo
-                budgetable periode ini.
-              </p>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      <div>
-        <label className="mb-2 block text-sm font-medium text-zinc-700">
-          {isTransfer ? "From Wallet" : "Wallet"}
-        </label>
-        <select
-          value={form.walletId}
-          onChange={(event) =>
-            onChange({ ...form, walletId: event.target.value })
-          }
-          className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-          required
-        >
-          {wallets.map((wallet) => (
-            <option key={wallet.id} value={wallet.id}>
-              {wallet.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {isTransfer ? (
+    <form
+      onSubmit={onSubmit}
+      className={stickyActions ? "flex h-full min-h-0 flex-col" : "space-y-4"}
+    >
+      <div
+        className={
+          stickyActions
+            ? "min-h-0 flex-1 space-y-4 overflow-y-auto pb-4 pr-1"
+            : "space-y-4"
+        }
+      >
         <div>
           <label className="mb-2 block text-sm font-medium text-zinc-700">
-            To Wallet
+            Type
           </label>
           <select
-            value={form.transferToWalletId}
+            value={form.type}
             onChange={(event) =>
-              onChange({ ...form, transferToWalletId: event.target.value })
+              onChange({
+                ...form,
+                type: event.target.value as TransactionType,
+                categoryGroup: getDefaultCategoryGroup(
+                  categories,
+                  event.target.value as TransactionType,
+                ),
+                categoryId: "",
+                budgetCategoryId: "",
+                transferToWalletId: "",
+                isUnbudgetedExpense: false,
+                allocateToBudget: true,
+                allocateSavings: false,
+                savingsAmount: "",
+                savingsNote: "",
+                transferFeeEnabled: false,
+                transferFeeAmount: "",
+              })
+            }
+            className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+          >
+            {transactionTypeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="mb-2 block text-sm font-medium text-zinc-700">
+            Amount
+          </label>
+          <div className="flex gap-2">
+            <input
+              value={form.amount}
+              onClick={() => setIsAmountCalculatorOpen(true)}
+              readOnly
+              inputMode="none"
+              className="w-full cursor-pointer rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              placeholder="Tap untuk hitung amount"
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setIsAmountCalculatorOpen(true)}
+              className="shrink-0 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
+            >
+              Hitung
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-zinc-500">
+            Jumlahkan beberapa barang langsung di sini.
+          </p>
+        </div>
+
+        {isAmountCalculatorOpen ? (
+          <AmountCalculator
+            initialAmount={parsedAmount}
+            onApply={(amount) => {
+              onChange({ ...form, amount: formatAmountInput(amount) });
+              setIsAmountCalculatorOpen(false);
+            }}
+            onClose={() => setIsAmountCalculatorOpen(false)}
+          />
+        ) : null}
+
+        {form.type === TransactionType.INCOME ? (
+          <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4">
+            <label className="flex items-center gap-2 text-sm font-medium text-zinc-700">
+              <input
+                type="checkbox"
+                checked={form.allocateToBudget}
+                onChange={(event) =>
+                  onChange({
+                    ...form,
+                    allocateToBudget: event.target.checked,
+                  })
+                }
+                className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              Gunakan income ini untuk budget
+            </label>
+            {!form.allocateToBudget ? (
+              <p className="mt-2 text-xs text-zinc-500">
+                Income tetap masuk wallet dan cashflow, tetapi tidak menambah
+                Budgetable Income.
+              </p>
+            ) : null}
+            <label className="mt-4 flex items-center gap-2 text-sm font-medium text-zinc-700">
+              <input
+                type="checkbox"
+                checked={form.allocateSavings}
+                onChange={(event) =>
+                  onChange({
+                    ...form,
+                    allocateSavings: event.target.checked,
+                    savingsAmount: event.target.checked
+                      ? form.savingsAmount
+                      : "",
+                    savingsNote: event.target.checked ? form.savingsNote : "",
+                  })
+                }
+                className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              Masukkan sebagian ke Savings
+            </label>
+
+            {form.allocateSavings ? (
+              <div className="mt-3 space-y-3">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-zinc-700">
+                    Savings Amount
+                  </label>
+                  <input
+                    value={form.savingsAmount}
+                    onChange={(event) =>
+                      onChange({
+                        ...form,
+                        savingsAmount: normalizeAmountInput(event.target.value),
+                      })
+                    }
+                    inputMode="numeric"
+                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                    placeholder="Rp 1.000.000"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-zinc-700">
+                    Savings Note
+                  </label>
+                  <input
+                    value={form.savingsNote}
+                    onChange={(event) =>
+                      onChange({ ...form, savingsNote: event.target.value })
+                    }
+                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                    placeholder="Savings from salary"
+                    maxLength={120}
+                  />
+                </div>
+              </div>
+            ) : null}
+            <div className="mt-3 rounded-lg bg-white px-3 py-3 text-xs text-zinc-600 ring-1 ring-zinc-200">
+              <p>Preview allocation</p>
+              <p className="mt-2">
+                Income tercatat: {formatRupiah(parsedAmount)}
+              </p>
+              <p>Savings bertambah: {formatRupiah(parsedSavingsAmount)}</p>
+              {form.allocateToBudget ? (
+                <>
+                  <p className="mt-2 font-semibold text-emerald-700">
+                    Budgetable for {formatBudgetPeriod(form.budgetMonth)}:{" "}
+                    {formatRupiah(parsedBudgetableAmount)}
+                  </p>
+                  <p className="mt-2 text-zinc-500">
+                    Sisa income menjadi saldo budgetable untuk periode pilihan.
+                  </p>
+                </>
+              ) : (
+                <p className="mt-2 font-semibold text-zinc-600">
+                  Budgetable Income: {formatRupiah(0)}
+                </p>
+              )}
+              {form.allocateToBudget &&
+              form.allocateSavings &&
+              parsedAmount > 0 &&
+              parsedBudgetableAmount === 0 ? (
+                <p className="mt-2 font-medium text-blue-700">
+                  Income ini sepenuhnya masuk Savings dan tidak menambah saldo
+                  budgetable periode ini.
+                </p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        <div>
+          <label className="mb-2 block text-sm font-medium text-zinc-700">
+            {isTransfer ? "From Wallet" : "Wallet"}
+          </label>
+          <select
+            value={form.walletId}
+            onChange={(event) =>
+              onChange({ ...form, walletId: event.target.value })
             }
             className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
             required
           >
-            <option value="">Select destination</option>
-            {wallets
-              .filter((wallet) => wallet.id !== form.walletId)
-              .map((wallet) => (
-                <option key={wallet.id} value={wallet.id}>
-                  {wallet.name}
-                </option>
-              ))}
+            {wallets.map((wallet) => (
+              <option key={wallet.id} value={wallet.id}>
+                {wallet.name}
+              </option>
+            ))}
           </select>
         </div>
-      ) : (
-        <>
+
+        {isTransfer ? (
           <div>
             <label className="mb-2 block text-sm font-medium text-zinc-700">
-              Group Kategori
+              To Wallet
             </label>
             <select
-              value={form.categoryGroup}
+              value={form.transferToWalletId}
               onChange={(event) =>
-                onChange({
-                  ...form,
-                  categoryGroup: event.target.value,
-                  categoryId: "",
-                })
+                onChange({ ...form, transferToWalletId: event.target.value })
               }
               className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
               required
-              disabled={categoryGroups.length === 0}
             >
-              <option value="">Select group</option>
-              {categoryGroups.map((group) => (
-                <option key={group} value={group}>
-                  {group}
-                </option>
-              ))}
+              <option value="">Select destination</option>
+              {wallets
+                .filter((wallet) => wallet.id !== form.walletId)
+                .map((wallet) => (
+                  <option key={wallet.id} value={wallet.id}>
+                    {wallet.name}
+                  </option>
+                ))}
             </select>
           </div>
+        ) : (
+          <>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-zinc-700">
+                Group Kategori
+              </label>
+              <select
+                value={form.categoryGroup}
+                onChange={(event) =>
+                  onChange({
+                    ...form,
+                    categoryGroup: event.target.value,
+                    categoryId: "",
+                  })
+                }
+                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                required
+                disabled={categoryGroups.length === 0}
+              >
+                <option value="">Select group</option>
+                {categoryGroups.map((group) => (
+                  <option key={group} value={group}>
+                    {group}
+                  </option>
+                ))}
+              </select>
+            </div>
 
+            <div>
+              <label className="mb-2 block text-sm font-medium text-zinc-700">
+                Sub Kategori
+              </label>
+              <select
+                value={form.categoryId}
+                onChange={(event) => {
+                  const category = selectableCategories.find(
+                    (item) => item.id === event.target.value,
+                  );
+
+                  onChange({
+                    ...form,
+                    categoryId: event.target.value,
+                    categoryGroup: category?.group || form.categoryGroup,
+                  });
+                }}
+                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                required
+                disabled={!form.categoryGroup}
+              >
+                <option value="">Select sub category</option>
+                {selectedGroupCategories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
+        )}
+
+        {isTransfer && !onCancel ? (
+          <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4">
+            <label className="flex items-center gap-2 text-sm font-medium text-zinc-700">
+              <input
+                type="checkbox"
+                checked={form.transferFeeEnabled}
+                onChange={(event) =>
+                  onChange({
+                    ...form,
+                    transferFeeEnabled: event.target.checked,
+                    transferFeeAmount: event.target.checked
+                      ? form.transferFeeAmount
+                      : "",
+                  })
+                }
+                className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              Biaya Admin
+            </label>
+            {form.transferFeeEnabled ? (
+              <div className="mt-3 space-y-3">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-zinc-700">
+                    Nominal Biaya Admin
+                  </label>
+                  <input
+                    value={form.transferFeeAmount}
+                    onChange={(event) =>
+                      onChange({
+                        ...form,
+                        transferFeeAmount: normalizeAmountInput(
+                          event.target.value,
+                        ),
+                      })
+                    }
+                    inputMode="numeric"
+                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                    placeholder="Rp 1.000"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-zinc-700">
+                    Admin Fee Budget Period
+                  </label>
+                  <input
+                    type="month"
+                    value={form.budgetMonth}
+                    onChange={(event) =>
+                      onChange({
+                        ...form,
+                        budgetMonth: event.target.value,
+                        budgetCategoryId: getBudgetCategoryIdForMonth(
+                          budgetCategories,
+                          form.budgetCategoryId,
+                          event.target.value,
+                        ),
+                      })
+                    }
+                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-zinc-700">
+                    Admin Fee Budget Category
+                  </label>
+                  <select
+                    value={form.budgetCategoryId}
+                    onChange={(event) =>
+                      onChange({
+                        ...form,
+                        budgetCategoryId: event.target.value,
+                      })
+                    }
+                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                    required
+                  >
+                    <option value="">
+                      {availableBudgetCategories.length === 0
+                        ? "No assigned budget category for this period"
+                        : "Select budget category"}
+                    </option>
+                    {availableBudgetCategories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedBudgetAllocation &&
+                  currentCategoryRemaining !== null &&
+                  categoryRemainingAfterSave !== null ? (
+                    <div className="mt-3 rounded-lg bg-white px-3 py-3 text-xs text-zinc-600 ring-1 ring-zinc-200">
+                      <p>
+                        Current remaining:{" "}
+                        {formatRupiah(currentCategoryRemaining)}
+                      </p>
+                      {categoryRemainingAfterSave < 0 ? (
+                        <p className="mt-2 font-semibold text-red-700">
+                          Fee will overspend by:{" "}
+                          {formatRupiah(Math.abs(categoryRemainingAfterSave))}
+                        </p>
+                      ) : (
+                        <p className="mt-2 font-semibold text-emerald-700">
+                          Remaining after fee:{" "}
+                          {formatRupiah(categoryRemainingAfterSave)}
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div>
+          <label className="mb-2 block text-sm font-medium text-zinc-700">
+            Date
+          </label>
+          <input
+            type="date"
+            value={form.transactionDate}
+            onChange={(event) => {
+              const nextTransactionDate = event.target.value;
+              const nextTransactionMonth = nextTransactionDate.slice(0, 7);
+
+              // If budgetMonth was in sync with previous transaction month, keep them in sync
+              const prevTransactionMonth = form.transactionDate.slice(0, 7);
+              const budgetMonthWasSynced =
+                form.budgetMonth === prevTransactionMonth;
+
+              const nextBudgetMonth = budgetMonthWasSynced
+                ? nextTransactionMonth
+                : form.budgetMonth;
+
+              onChange({
+                ...form,
+                transactionDate: nextTransactionDate,
+                budgetMonth: nextBudgetMonth,
+                budgetCategoryId: getBudgetCategoryIdForMonth(
+                  budgetCategories,
+                  form.budgetCategoryId,
+                  nextBudgetMonth,
+                ),
+              });
+            }}
+            className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            required
+          />
+        </div>
+
+        {form.type === TransactionType.EXPENSE ||
+        (form.type === TransactionType.INCOME && form.allocateToBudget) ? (
           <div>
             <label className="mb-2 block text-sm font-medium text-zinc-700">
-              Sub Kategori
+              {form.type === TransactionType.EXPENSE && form.isUnbudgetedExpense
+                ? "Reporting Period"
+                : "Budget Period"}
             </label>
-            <select
-              value={form.categoryId}
+            <input
+              type="month"
+              value={form.budgetMonth}
               onChange={(event) => {
-                const category = selectableCategories.find(
-                  (item) => item.id === event.target.value,
-                );
+                const nextBudgetMonth = event.target.value;
 
                 onChange({
                   ...form,
-                  categoryId: event.target.value,
-                  categoryGroup: category?.group || form.categoryGroup,
+                  budgetMonth: nextBudgetMonth,
+                  budgetCategoryId: getBudgetCategoryIdForMonth(
+                    budgetCategories,
+                    form.budgetCategoryId,
+                    nextBudgetMonth,
+                  ),
                 });
               }}
               className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
               required
-              disabled={!form.categoryGroup}
+            />
+            {form.type === TransactionType.EXPENSE &&
+            !form.isUnbudgetedExpense &&
+            form.budgetMonth > form.transactionDate.slice(0, 7) ? (
+              <p className="mt-2 text-xs font-medium text-blue-700">
+                Akan ditandai Paid Early karena pembayaran terjadi sebelum
+                budget period.
+              </p>
+            ) : null}
+            {form.type === TransactionType.EXPENSE &&
+            form.isUnbudgetedExpense ? (
+              <p className="mt-2 text-xs text-zinc-500">
+                Digunakan untuk merangkum pengeluaran unbudgeted pada periode
+                ini.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {form.type === TransactionType.EXPENSE ? (
+          <div>
+            <label className="mb-2 block text-sm font-medium text-zinc-700">
+              Expense Allocation
+            </label>
+            <label className="flex items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-700">
+              <input
+                type="checkbox"
+                checked={form.isUnbudgetedExpense}
+                onChange={(event) =>
+                  onChange({
+                    ...form,
+                    isUnbudgetedExpense: event.target.checked,
+                    budgetCategoryId: event.target.checked
+                      ? ""
+                      : form.budgetCategoryId,
+                  })
+                }
+                className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <span>
+                <span className="block font-medium">Unbudgeted Expense</span>
+                <span className="mt-1 block text-xs text-zinc-500">
+                  Untuk pengeluaran tidak direncanakan seperti tilang atau ban
+                  bocor. Saldo wallet berkurang, tetapi tidak memotong envelope.
+                </span>
+              </span>
+            </label>
+          </div>
+        ) : null}
+
+        {form.type === TransactionType.EXPENSE && !form.isUnbudgetedExpense ? (
+          <div>
+            <label className="mb-2 block text-sm font-medium text-zinc-700">
+              Budget Category
+            </label>
+            <select
+              value={form.budgetCategoryId}
+              onChange={(event) =>
+                onChange({ ...form, budgetCategoryId: event.target.value })
+              }
+              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              required
             >
-              <option value="">Select sub category</option>
-              {selectedGroupCategories.map((category) => (
+              <option value="">
+                {availableBudgetCategories.length === 0
+                  ? "No assigned budget category for this month"
+                  : "No budget category"}
+              </option>
+              {availableBudgetCategories.map((category) => (
                 <option key={category.id} value={category.id}>
                   {category.name}
                 </option>
               ))}
             </select>
-          </div>
-
-        </>
-      )}
-
-      {isTransfer && !onCancel ? (
-        <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4">
-          <label className="flex items-center gap-2 text-sm font-medium text-zinc-700">
-            <input
-              type="checkbox"
-              checked={form.transferFeeEnabled}
-              onChange={(event) =>
-                onChange({
-                  ...form,
-                  transferFeeEnabled: event.target.checked,
-                  transferFeeAmount: event.target.checked
-                    ? form.transferFeeAmount
-                    : "",
-                })
-              }
-              className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
-            />
-            Biaya Admin
-          </label>
-          {form.transferFeeEnabled ? (
-            <div className="mt-3 space-y-3">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-zinc-700">
-                  Nominal Biaya Admin
-                </label>
-                <input
-                  value={form.transferFeeAmount}
-                  onChange={(event) =>
-                    onChange({
-                      ...form,
-                      transferFeeAmount: normalizeAmountInput(
-                        event.target.value,
-                      ),
-                    })
-                  }
-                  inputMode="numeric"
-                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                  placeholder="Rp 1.000"
-                  required
-                />
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-medium text-zinc-700">
-                  Admin Fee Budget Period
-                </label>
-                <input
-                  type="month"
-                  value={form.budgetMonth}
-                  onChange={(event) =>
-                    onChange({
-                      ...form,
-                      budgetMonth: event.target.value,
-                      budgetCategoryId: getBudgetCategoryIdForMonth(
-                        budgetCategories,
-                        form.budgetCategoryId,
-                        event.target.value,
-                      ),
-                    })
-                  }
-                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                  required
-                />
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-medium text-zinc-700">
-                  Admin Fee Budget Category
-                </label>
-                <select
-                  value={form.budgetCategoryId}
-                  onChange={(event) =>
-                    onChange({ ...form, budgetCategoryId: event.target.value })
-                  }
-                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                  required
-                >
-                  <option value="">
-                    {availableBudgetCategories.length === 0
-                      ? "No assigned budget category for this period"
-                      : "Select budget category"}
-                  </option>
-                  {availableBudgetCategories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-                {selectedBudgetAllocation &&
-                currentCategoryRemaining !== null &&
-                categoryRemainingAfterSave !== null ? (
-                  <div className="mt-3 rounded-lg bg-white px-3 py-3 text-xs text-zinc-600 ring-1 ring-zinc-200">
-                    <p>
-                      Current remaining:{" "}
-                      {formatRupiah(currentCategoryRemaining)}
+            {selectedBudgetAllocation &&
+            currentCategoryRemaining !== null &&
+            categoryRemainingAfterSave !== null ? (
+              <div className="mt-3 rounded-lg bg-zinc-50 px-3 py-3 text-xs text-zinc-600 ring-1 ring-zinc-200">
+                <p>
+                  Current remaining: {formatRupiah(currentCategoryRemaining)}
+                </p>
+                {categoryRemainingAfterSave < 0 ? (
+                  <>
+                    <p className="mt-2 font-semibold text-red-700">
+                      Overspent by:{" "}
+                      {formatRupiah(Math.abs(categoryRemainingAfterSave))}
                     </p>
-                    {categoryRemainingAfterSave < 0 ? (
-                      <p className="mt-2 font-semibold text-red-700">
-                        Fee will overspend by:{" "}
-                        {formatRupiah(Math.abs(categoryRemainingAfterSave))}
-                      </p>
-                    ) : (
-                      <p className="mt-2 font-semibold text-emerald-700">
-                        Remaining after fee:{" "}
-                        {formatRupiah(categoryRemainingAfterSave)}
-                      </p>
-                    )}
-                  </div>
-                ) : null}
+                    <p className="mt-1 text-zinc-500">
+                      Expense tetap dapat disimpan, tetapi budget category akan
+                      melebihi alokasi.
+                    </p>
+                  </>
+                ) : (
+                  <p className="mt-2 font-semibold text-emerald-700">
+                    Remaining after save:{" "}
+                    {formatRupiah(categoryRemainingAfterSave)}
+                  </p>
+                )}
               </div>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div>
-        <label className="mb-2 block text-sm font-medium text-zinc-700">
-          Date
-        </label>
-        <input
-          type="date"
-          value={form.transactionDate}
-          onChange={(event) => {
-            const nextTransactionDate = event.target.value;
-            const nextTransactionMonth = nextTransactionDate.slice(0, 7);
-
-            // If budgetMonth was in sync with previous transaction month, keep them in sync
-            const prevTransactionMonth = form.transactionDate.slice(0, 7);
-            const budgetMonthWasSynced =
-              form.budgetMonth === prevTransactionMonth;
-
-            const nextBudgetMonth = budgetMonthWasSynced
-              ? nextTransactionMonth
-              : form.budgetMonth;
-
-            onChange({
-              ...form,
-              transactionDate: nextTransactionDate,
-              budgetMonth: nextBudgetMonth,
-              budgetCategoryId: getBudgetCategoryIdForMonth(
-                budgetCategories,
-                form.budgetCategoryId,
-                nextBudgetMonth,
-              ),
-            });
-          }}
-          className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-          required
-        />
-      </div>
-
-      {(form.type === TransactionType.EXPENSE ||
-        (form.type === TransactionType.INCOME && form.allocateToBudget)) ? <div>
-        <label className="mb-2 block text-sm font-medium text-zinc-700">
-          {form.type === TransactionType.EXPENSE && form.isUnbudgetedExpense
-            ? "Reporting Period"
-            : "Budget Period"}
-        </label>
-        <input
-          type="month"
-          value={form.budgetMonth}
-          onChange={(event) => {
-            const nextBudgetMonth = event.target.value;
-
-            onChange({
-              ...form,
-              budgetMonth: nextBudgetMonth,
-              budgetCategoryId: getBudgetCategoryIdForMonth(
-                budgetCategories,
-                form.budgetCategoryId,
-                nextBudgetMonth,
-              ),
-            });
-          }}
-          className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-          required
-        />
-        {form.type === TransactionType.EXPENSE &&
-        !form.isUnbudgetedExpense &&
-        form.budgetMonth > form.transactionDate.slice(0, 7) ? (
-          <p className="mt-2 text-xs font-medium text-blue-700">
-            Akan ditandai Paid Early karena pembayaran terjadi sebelum budget
-            period.
-          </p>
+            ) : null}
+          </div>
         ) : null}
-        {form.type === TransactionType.EXPENSE &&
-        form.isUnbudgetedExpense ? (
-          <p className="mt-2 text-xs text-zinc-500">
-            Digunakan untuk merangkum pengeluaran unbudgeted pada periode ini.
-          </p>
-        ) : null}
-      </div> : null}
 
-      {form.type === TransactionType.EXPENSE ? (
         <div>
           <label className="mb-2 block text-sm font-medium text-zinc-700">
-            Expense Allocation
+            Note
           </label>
-          <label className="flex items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-700">
-            <input
-              type="checkbox"
-              checked={form.isUnbudgetedExpense}
-              onChange={(event) =>
-                onChange({
-                  ...form,
-                  isUnbudgetedExpense: event.target.checked,
-                  budgetCategoryId: event.target.checked
-                    ? ""
-                    : form.budgetCategoryId,
-                })
-              }
-              className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
-            />
-            <span>
-              <span className="block font-medium">Unbudgeted Expense</span>
-              <span className="mt-1 block text-xs text-zinc-500">
-                Untuk pengeluaran tidak direncanakan seperti tilang atau ban
-                bocor. Saldo wallet berkurang, tetapi tidak memotong envelope.
-              </span>
-            </span>
-          </label>
-        </div>
-      ) : null}
-
-      {form.type === TransactionType.EXPENSE && !form.isUnbudgetedExpense ? (
-        <div>
-          <label className="mb-2 block text-sm font-medium text-zinc-700">
-            Budget Category
-          </label>
-          <select
-            value={form.budgetCategoryId}
+          <input
+            value={form.description}
             onChange={(event) =>
-              onChange({ ...form, budgetCategoryId: event.target.value })
+              onChange({ ...form, description: event.target.value })
             }
             className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-            required
-          >
-            <option value="">
-              {availableBudgetCategories.length === 0
-                ? "No assigned budget category for this month"
-                : "No budget category"}
-            </option>
-            {availableBudgetCategories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
-          </select>
-          {selectedBudgetAllocation &&
-          currentCategoryRemaining !== null &&
-          categoryRemainingAfterSave !== null ? (
-            <div className="mt-3 rounded-lg bg-zinc-50 px-3 py-3 text-xs text-zinc-600 ring-1 ring-zinc-200">
-              <p>
-                Current remaining: {formatRupiah(currentCategoryRemaining)}
-              </p>
-              {categoryRemainingAfterSave < 0 ? (
-                <>
-                  <p className="mt-2 font-semibold text-red-700">
-                    Overspent by:{" "}
-                    {formatRupiah(Math.abs(categoryRemainingAfterSave))}
-                  </p>
-                  <p className="mt-1 text-zinc-500">
-                    Expense tetap dapat disimpan, tetapi budget category akan
-                    melebihi alokasi.
-                  </p>
-                </>
-              ) : (
-                <p className="mt-2 font-semibold text-emerald-700">
-                  Remaining after save:{" "}
-                  {formatRupiah(categoryRemainingAfterSave)}
-                </p>
-              )}
-            </div>
-          ) : null}
+            placeholder="Lunch, salary, top up"
+            maxLength={120}
+          />
         </div>
-      ) : null}
-
-      <div>
-        <label className="mb-2 block text-sm font-medium text-zinc-700">
-          Note
-        </label>
-        <input
-          value={form.description}
-          onChange={(event) =>
-            onChange({ ...form, description: event.target.value })
-          }
-          className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-          placeholder="Lunch, salary, top up"
-          maxLength={120}
-        />
       </div>
 
-      <div className="flex gap-2">
+      <div
+        className={
+          stickyActions
+            ? "flex shrink-0 gap-2 border-t border-zinc-100 bg-white pt-4"
+            : "flex gap-2"
+        }
+      >
         <button
           type="submit"
           disabled={isSubmitting || wallets.length === 0}
@@ -1294,9 +1400,7 @@ function AmountCalculator({
     initialAmount > 0 ? String(initialAmount) : "",
   );
   const currentTerms =
-    entry === ""
-      ? terms
-      : [...terms, { operator, amount: Number(entry) }];
+    entry === "" ? terms : [...terms, { operator, amount: Number(entry) }];
   const total = calculateTermsTotal(currentTerms);
 
   const appendDigits = (digits: string) => {

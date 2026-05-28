@@ -3,6 +3,7 @@
 import { FormEvent, ReactNode, useMemo, useState } from "react";
 
 import { calculateBudgetPeriodSummary, monthInputValue } from "@/lib/budgets";
+import { SensitiveAmount } from "@/components/PrivacyMode";
 import { TransactionType, UserRole } from "@/lib/prisma-enums";
 import {
   formatAmountInput,
@@ -1225,7 +1226,11 @@ export function SettingsClient({
                 {selectedFundingShortfall > 0 ? (
                   <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
                     UNDERFUNDED: Total savings dan sisa budget aktif melebihi
-                    saldo wallet sebesar {formatRupiah(selectedFundingShortfall)}.
+                    saldo wallet sebesar{" "}
+                    <SensitiveAmount>
+                      {formatRupiah(selectedFundingShortfall)}
+                    </SensitiveAmount>
+                    .
                   </p>
                 ) : null}
               </div>
@@ -1284,10 +1289,15 @@ export function SettingsClient({
                           <div className="flex shrink-0 items-center gap-3">
                             <div className="text-right">
                               <p className="text-sm font-bold text-zinc-950">
-                                {formatRupiah(budget.amount)}
+                                <SensitiveAmount>
+                                  {formatRupiah(budget.amount)}
+                                </SensitiveAmount>
                               </p>
                               <p className="mt-1 text-xs text-zinc-500">
-                                {formatRupiah(budget.spent)} spent
+                                <SensitiveAmount>
+                                  {formatRupiah(budget.spent)}
+                                </SensitiveAmount>{" "}
+                                spent
                               </p>
                             </div>
                             <button
@@ -1316,14 +1326,21 @@ export function SettingsClient({
                         </div>
                         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
                           <span>
-                            {formatRupiah(
-                              remaining >= 0 ? remaining : Math.abs(remaining),
-                            )}
+                            <SensitiveAmount>
+                              {formatRupiah(
+                                remaining >= 0
+                                  ? remaining
+                                  : Math.abs(remaining),
+                              )}
+                            </SensitiveAmount>
                             {remaining >= 0 ? " remaining" : " over"}
                           </span>
                           {budget.paidEarlyAmount > 0 ? (
                             <span className="rounded-full bg-blue-100 px-2 py-1 font-medium text-blue-700">
-                              Paid Early: {formatRupiah(budget.paidEarlyAmount)}
+                              Paid Early:{" "}
+                              <SensitiveAmount>
+                                {formatRupiah(budget.paidEarlyAmount)}
+                              </SensitiveAmount>
                             </span>
                           ) : null}
                         </div>
@@ -1537,7 +1554,9 @@ function SummaryTile({
       <p className="text-xs font-semibold uppercase tracking-wide opacity-80">
         {label}
       </p>
-      <p className="mt-2 text-base font-bold text-zinc-950">{value}</p>
+      <p className="mt-2 text-base font-bold text-zinc-950">
+        <SensitiveAmount>{value}</SensitiveAmount>
+      </p>
     </article>
   );
 }

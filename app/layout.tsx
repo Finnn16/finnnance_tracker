@@ -17,6 +17,15 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Finnnance Tracker",
   description: "Personal finance and split bill tracker",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "Budget Lite",
+    statusBarStyle: "black-translucent",
+  },
+  icons: {
+    apple: "/budget-lite-icon.svg",
+  },
 };
 
 export default function RootLayout({

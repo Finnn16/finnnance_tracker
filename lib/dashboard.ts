@@ -1,4 +1,9 @@
-import { TransactionType, WalletType } from "@/lib/prisma-enums";
+import {
+  DebtStatus,
+  DebtType,
+  TransactionType,
+  WalletType,
+} from "@/lib/prisma-enums";
 import { Prisma } from "@/lib/generated/prisma/client";
 import {
   BUDGET_TIME_ZONE,
@@ -170,6 +175,18 @@ type SavingsLedgerRow = {
   };
 };
 
+type DashboardDebtRow = {
+  id: string;
+  type: DebtType;
+  amount: number;
+  status: DebtStatus;
+  dueDate: Date | null;
+  personName: string;
+  payments: {
+    amount: number;
+  }[];
+};
+
 export async function getDashboardData(
   selectedMonth?: string,
   selectedUserId?: string | null,
@@ -196,6 +213,7 @@ export async function getDashboardData(
     budgetableIncome,
     savingsLedgers,
     globalAllocation,
+    debts,
   ] = (await Promise.all([
     prisma.wallet.findMany({
       where: userScope,
@@ -289,6 +307,18 @@ export async function getDashboardData(
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     }),
     getGlobalAllocationSummary(prisma, selectedUserId || undefined),
+    prisma.debt.findMany({
+      where: userScope,
+      select: {
+        id: true,
+        type: true,
+        amount: true,
+        status: true,
+        dueDate: true,
+        personName: true,
+        payments: { select: { amount: true } },
+      },
+    }),
   ])) as [
     DashboardWalletRow[],
     DashboardTransactionRow[],
@@ -298,6 +328,7 @@ export async function getDashboardData(
     { _sum: { budgetableAmount: number | null } },
     SavingsLedgerRow[],
     Awaited<ReturnType<typeof getGlobalAllocationSummary>>,
+    DashboardDebtRow[],
   ];
 
   const monthTransactions = activityTransactions.filter(
@@ -441,6 +472,36 @@ export async function getDashboardData(
   }
 
   const topCategory = topCategories[0];
+  let totalActiveReceivable = 0;
+  let totalActivePayable = 0;
+
+  const activeDebts = debts
+    .filter(
+      (debt) =>
+        debt.status !== DebtStatus.PAID &&
+        debt.status !== DebtStatus.CANCELLED,
+    )
+    .map((debt) => {
+      const paidAmount = debt.payments.reduce(
+        (total, payment) => total + payment.amount,
+        0,
+      );
+      const remainingAmount = Math.max(0, debt.amount - paidAmount);
+
+      if (debt.type === DebtType.RECEIVABLE) {
+        totalActiveReceivable += remainingAmount;
+      } else {
+        totalActivePayable += remainingAmount;
+      }
+
+      return {
+        id: debt.id,
+        personName: debt.personName,
+        type: debt.type,
+        dueDate: debt.dueDate?.toISOString() || null,
+        remainingAmount,
+      };
+    });
   const aiInsight =
     monthTransactions.length === 0
       ? {
@@ -548,6 +609,16 @@ export async function getDashboardData(
           return "SAFE" as BudgetItemStatus;
         })(),
       })),
+    },
+    debt: {
+      totalActiveReceivable,
+      totalActivePayable,
+      netDebtPosition: totalActiveReceivable - totalActivePayable,
+      activeCount: activeDebts.length,
+      upcomingDueDates: activeDebts
+        .filter((debt) => debt.dueDate)
+        .sort((left, right) => left.dueDate!.localeCompare(right.dueDate!))
+        .slice(0, 5),
     },
     cashflow: chartDays.map((day) => ({
       label: day.label,

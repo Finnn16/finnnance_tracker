@@ -8,7 +8,9 @@ import {
   formatRupiah,
   normalizeAmountInput,
 } from "@/lib/money";
+import { SensitiveAmount } from "@/components/PrivacyMode";
 import { getWalletTypeLabel, walletTypeOptions } from "@/lib/wallets";
+import { EmptyState } from "@/components/EmptyState";
 
 type WalletView = {
   id: string;
@@ -173,7 +175,7 @@ export function WalletsClient({
           <div className="rounded-lg bg-white p-5 shadow-sm">
             <p className="text-sm text-zinc-500">Total Balance</p>
             <p className="mt-2 text-2xl font-bold text-zinc-950">
-              {formatRupiah(totalBalance)}
+              <SensitiveAmount>{formatRupiah(totalBalance)}</SensitiveAmount>
             </p>
           </div>
           <div className="rounded-lg bg-white p-5 shadow-sm">
@@ -197,6 +199,14 @@ export function WalletsClient({
         ) : null}
 
         <div className="space-y-3">
+          {wallets.length === 0 ? (
+            <EmptyState
+              icon="💰"
+              title="No wallets yet"
+              description="Create your first wallet to start tracking your money."
+            />
+          ) : null}
+
           {wallets.map((wallet) => (
             <article
               key={wallet.id}
@@ -232,7 +242,9 @@ export function WalletsClient({
 
                   <div className="flex flex-col gap-3 sm:items-end">
                     <p className="text-xl font-bold text-zinc-950">
-                      {formatRupiah(wallet.currentBalance)}
+                      <SensitiveAmount>
+                        {formatRupiah(wallet.currentBalance)}
+                      </SensitiveAmount>
                     </p>
                     <div className="flex gap-2">
                       <button

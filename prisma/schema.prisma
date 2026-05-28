@@ -61,6 +61,18 @@ enum SavingLedgerType {
   ADJUSTMENT
 }
 
+enum DebtType {
+  RECEIVABLE
+  PAYABLE
+}
+
+enum DebtStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  CANCELLED
+}
+
 model User {
   id                String    @id @default(cuid())
   clerkUserId       String?   @unique @map("clerk_user_id")
@@ -78,6 +90,7 @@ model User {
   budgetCategories BudgetCategory[]
   budgetMonths     BudgetMonth[]
   savingLedgers    SavingLedger[]
+  debts            Debt[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -98,6 +111,8 @@ model Wallet {
   user                 User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions         Transaction[] @relation("TransactionWallet")
   transferTransactions Transaction[] @relation("TransactionTransferWallet")
+  debts                Debt[]
+  debtPayments         DebtPayment[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -271,4 +286,52 @@ model SavingLedger {
   @@index([type])
   @@index([sourceTransactionId])
   @@map("saving_ledgers")
+}
+
+model Debt {
+  id         String     @id @default(cuid())
+  userId     String     @map("user_id")
+  walletId   String?    @map("wallet_id")
+  personName String     @map("person_name")
+  type       DebtType
+  amount     Int
+  note       String?
+  date       DateTime
+  dueDate    DateTime?  @map("due_date")
+  status     DebtStatus @default(UNPAID)
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet   Wallet?       @relation(fields: [walletId], references: [id], onDelete: SetNull)
+  payments DebtPayment[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([walletId])
+  @@index([type])
+  @@index([status])
+  @@index([date])
+  @@index([dueDate])
+  @@map("debts")
+}
+
+model DebtPayment {
+  id       String   @id @default(cuid())
+  debtId   String   @map("debt_id")
+  walletId String?  @map("wallet_id")
+  amount   Int
+  note     String?
+  date     DateTime
+
+  debt   Debt    @relation(fields: [debtId], references: [id], onDelete: Cascade)
+  wallet Wallet? @relation(fields: [walletId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([debtId])
+  @@index([walletId])
+  @@index([date])
+  @@map("debt_payments")
 }

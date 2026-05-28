@@ -1,7 +1,4 @@
-import { UserButton } from "@clerk/nextjs";
-import Link from "next/link";
-
-import { AppLockButton } from "@/components/AppLockButton";
+import { AppPageShell } from "@/components/AppPageShell";
 import { SavingsClient } from "@/components/SavingsClient";
 import {
   calculateSavingsSummary,
@@ -66,42 +63,21 @@ export default async function SavingsPage() {
   });
 
   return (
-    <div className="min-h-screen bg-zinc-100">
-      <header className="bg-white shadow-sm">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-          <div>
-            <Link href="/" className="text-sm font-medium text-indigo-700">
-              Back
-            </Link>
-            <h1 className="mt-1 text-2xl font-bold text-zinc-950">Savings</h1>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <span className="hidden text-sm text-zinc-600 sm:inline">
-              {user.name}
-            </span>
-            <AppLockButton />
-            <UserButton />
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-        <SavingsClient
-          summary={summary}
-          history={summarizeSavingsLedgers(ledgers)}
-          wallets={wallets.map((wallet) => ({
-            id: wallet.id,
-            name: wallet.name,
-            ownerName: wallet.user.name,
-          }))}
-          categories={categories.map((category) => ({
-            id: category.id,
-            name: category.name,
-            group: category.group,
-          }))}
-        />
-      </main>
-    </div>
+    <AppPageShell title="Savings" user={user}>
+      <SavingsClient
+        summary={summary}
+        history={summarizeSavingsLedgers(ledgers)}
+        wallets={wallets.map((wallet) => ({
+          id: wallet.id,
+          name: wallet.name,
+          ownerName: wallet.user.name,
+        }))}
+        categories={categories.map((category) => ({
+          id: category.id,
+          name: category.name,
+          group: category.group,
+        }))}
+      />
+    </AppPageShell>
   );
 }

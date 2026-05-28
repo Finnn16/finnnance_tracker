@@ -55,3 +55,19 @@ export const SavingLedgerType = {
 
 export type SavingLedgerType =
   (typeof SavingLedgerType)[keyof typeof SavingLedgerType];
+
+export const DebtType = {
+  RECEIVABLE: "RECEIVABLE",
+  PAYABLE: "PAYABLE",
+} as const;
+
+export type DebtType = (typeof DebtType)[keyof typeof DebtType];
+
+export const DebtStatus = {
+  UNPAID: "UNPAID",
+  PARTIAL: "PARTIAL",
+  PAID: "PAID",
+  CANCELLED: "CANCELLED",
+} as const;
+
+export type DebtStatus = (typeof DebtStatus)[keyof typeof DebtStatus];

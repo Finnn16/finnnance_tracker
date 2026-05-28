@@ -2,7 +2,9 @@
 
 import { FormEvent, useState } from "react";
 
+import { SensitiveAmount } from "@/components/PrivacyMode";
 import { monthInputValue } from "@/lib/budgets";
+import { formatDisplayTitle } from "@/lib/display-text";
 import {
   formatRupiah,
   normalizeAmountInput,
@@ -327,7 +329,11 @@ export function SavingsClient({
             <div className="rounded-xl bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
               <p>Preview</p>
               <p className="mt-1">
-                Savings balance akan berkurang {formatRupiah(parsedUseAmount)}.
+                Savings balance akan berkurang{" "}
+                <SensitiveAmount>
+                  {formatRupiah(parsedUseAmount)}
+                </SensitiveAmount>
+                .
               </p>
               {usageType === "EXPENSE" ? (
                 <p>
@@ -407,7 +413,10 @@ export function SavingsClient({
             <div className="rounded-xl bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
               <p>Preview</p>
               <p className="mt-1">
-                Actual savings: {formatRupiah(parsedActualAmount)}
+                Actual savings:{" "}
+                <SensitiveAmount>
+                  {formatRupiah(parsedActualAmount)}
+                </SensitiveAmount>
               </p>
               <p>
                 Adjustment will be recorded automatically based on system
@@ -462,7 +471,7 @@ export function SavingsClient({
                   </div>
                   <p className="mt-1 text-sm text-zinc-500">
                     {new Date(item.date).toLocaleDateString("id-ID")} •{" "}
-                    {item.note || "No note"}
+                    {formatDisplayTitle(item.note, "No note")}
                   </p>
                 </div>
                 <p
@@ -474,9 +483,10 @@ export function SavingsClient({
                         : "text-emerald-700"
                   }`}
                 >
-                  {item.type === "ADJUSTMENT" && item.amount < 0
-                    ? `- ${formatRupiah(Math.abs(item.amount))}`
-                    : formatRupiah(item.amount)}
+                  {item.type === "ADJUSTMENT" && item.amount < 0 ? "- " : ""}
+                  <SensitiveAmount>
+                    {formatRupiah(Math.abs(item.amount))}
+                  </SensitiveAmount>
                 </p>
               </div>
             </article>
@@ -491,7 +501,9 @@ function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
       <p className="text-sm text-zinc-500">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-zinc-950">{value}</p>
+      <p className="mt-2 text-2xl font-bold text-zinc-950">
+        <SensitiveAmount>{value}</SensitiveAmount>
+      </p>
     </div>
   );
 }

@@ -130,6 +130,8 @@ export async function DELETE(
         select: {
           transactions: true,
           transferTransactions: true,
+          debts: true,
+          debtPayments: true,
         },
       },
     },
@@ -140,11 +142,17 @@ export async function DELETE(
   }
 
   const usageCount =
-    wallet._count.transactions + wallet._count.transferTransactions;
+    wallet._count.transactions +
+    wallet._count.transferTransactions +
+    wallet._count.debts +
+    wallet._count.debtPayments;
 
   if (usageCount > 0) {
     return NextResponse.json(
-      { error: "Wallet cannot be deleted because it has transactions." },
+      {
+        error:
+          "Wallet cannot be deleted because it has transactions or debt records.",
+      },
       { status: 409 },
     );
   }
