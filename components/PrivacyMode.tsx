@@ -4,63 +4,23 @@ import {
   createContext,
   ReactNode,
   useContext,
-  useEffect,
   useMemo,
   useState,
 } from "react";
 
-const STORAGE_KEY = "privacy_amounts_hidden";
+const DEFAULT_AMOUNTS_HIDDEN = true;
 
 type PrivacyModeContextValue = {
   amountsHidden: boolean;
 };
 
 const PrivacyModeContext = createContext<PrivacyModeContextValue>({
-  amountsHidden: false,
+  amountsHidden: DEFAULT_AMOUNTS_HIDDEN,
 });
 
 export function PrivacyModeProvider({ children }: { children: ReactNode }) {
-  const [amountsHidden, setAmountsHidden] = useState(false);
-  const [preferenceLoaded, setPreferenceLoaded] = useState(false);
+  const [amountsHidden, setAmountsHidden] = useState(DEFAULT_AMOUNTS_HIDDEN);
   const contextValue = useMemo(() => ({ amountsHidden }), [amountsHidden]);
-
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      setAmountsHidden(window.localStorage.getItem(STORAGE_KEY) === "true");
-      setPreferenceLoaded(true);
-    });
-
-    return () => window.cancelAnimationFrame(frame);
-  }, []);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle(
-      "privacy-amounts-hidden",
-      amountsHidden,
-    );
-    document.documentElement.setAttribute(
-      "data-privacy-amounts-hidden",
-      String(amountsHidden),
-    );
-    document.body.classList.toggle("privacy-amounts-hidden", amountsHidden);
-    document.body.setAttribute(
-      "data-privacy-amounts-hidden",
-      String(amountsHidden),
-    );
-
-    if (preferenceLoaded) {
-      window.localStorage.setItem(STORAGE_KEY, String(amountsHidden));
-    }
-  }, [amountsHidden, preferenceLoaded]);
-
-  useEffect(() => {
-    return () => {
-      document.documentElement.classList.remove("privacy-amounts-hidden");
-      document.documentElement.removeAttribute("data-privacy-amounts-hidden");
-      document.body.classList.remove("privacy-amounts-hidden");
-      document.body.removeAttribute("data-privacy-amounts-hidden");
-    };
-  }, []);
 
   return (
     <PrivacyModeContext.Provider value={contextValue}>
