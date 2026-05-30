@@ -331,8 +331,9 @@ export function SettingsClient({
           (total, budget) => total + budget.spent,
           0,
         ),
+        unbudgetedSpent: selectedUnbudgetedSpent,
       }),
-    [selectedBudgetableIncome, selectedMonthBudgets],
+    [selectedBudgetableIncome, selectedMonthBudgets, selectedUnbudgetedSpent],
   );
   const filteredCategories = useMemo(() => {
     const search = categorySearch.trim().toLowerCase();
@@ -1237,16 +1238,19 @@ export function SettingsClient({
                         ? "red"
                         : "blue"
                     }
+                    hint="Sisa budgetable income setelah total budget dan unbudgeted expense."
                   />
                   <SummaryTile
                     label="Unbudgeted Expense"
                     value={formatRupiah(selectedUnbudgetedSpent)}
                     tone={selectedUnbudgetedSpent > 0 ? "red" : "slate"}
+                    hint="Expense yang tidak memotong envelope, tapi tetap mengurangi available to budget dan saldo wallet."
                   />
                   <SummaryTile
                     label="Funding Shortfall"
                     value={formatRupiah(selectedFundingShortfall)}
                     tone={selectedFundingShortfall > 0 ? "red" : "slate"}
+                    hint="Selisih saat total savings dan sisa budget aktif lebih besar dari total saldo wallet."
                   />
                 </div>
                 {selectedFundingShortfall > 0 ? (
@@ -2033,10 +2037,12 @@ function SummaryTile({
   label,
   value,
   tone,
+  hint,
 }: {
   label: string;
   value: string;
   tone: "blue" | "green" | "red" | "slate";
+  hint?: string;
 }) {
   const toneClass =
     tone === "blue"
@@ -2049,8 +2055,17 @@ function SummaryTile({
 
   return (
     <article className={`rounded-xl border px-4 py-3 ${toneClass}`}>
-      <p className="text-xs font-semibold uppercase tracking-wide opacity-80">
+      <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide opacity-80">
         {label}
+        {hint ? (
+          <span
+            title={hint}
+            aria-label={hint}
+            className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[10px] normal-case"
+          >
+            i
+          </span>
+        ) : null}
       </p>
       <p className="mt-2 text-base font-bold text-zinc-950">
         <SensitiveAmount>{value}</SensitiveAmount>

@@ -131,7 +131,7 @@ export default async function TransactionsPage({
         }),
         prisma.category.findMany({
           where: { isSelectable: true, isHidden: false },
-          select: { id: true, name: true, type: true, group: true },
+          select: { id: true, key: true, name: true, type: true, group: true },
           orderBy: [{ type: "asc" }, { group: "asc" }, { name: "asc" }],
         }),
         prisma.budgetCategory.findMany({

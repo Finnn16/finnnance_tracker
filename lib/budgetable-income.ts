@@ -14,7 +14,7 @@ export async function validateBudgetableIncomeReduction({
   replacementBudgetableAmount: number;
 }) {
   const monthRange = budgetMonthRange(budgetMonth)!;
-  const [budgets, remainingIncome] = await Promise.all([
+  const [budgets, remainingIncome, unbudgetedExpense] = await Promise.all([
     prisma.budget.aggregate({
       where: { userId, month: monthRange },
       _sum: { amount: true },
@@ -28,6 +28,15 @@ export async function validateBudgetableIncomeReduction({
       },
       _sum: { budgetableAmount: true },
     }),
+    prisma.transaction.aggregate({
+      where: {
+        userId,
+        type: TransactionType.EXPENSE,
+        budgetCategoryId: null,
+        budgetMonth: monthRange,
+      },
+      _sum: { amount: true },
+    }),
   ]);
 
   const summary = calculateBudgetPeriodSummary({
@@ -36,11 +45,12 @@ export async function validateBudgetableIncomeReduction({
       replacementBudgetableAmount,
     totalBudget: budgets._sum.amount ?? 0,
     totalSpent: 0,
+    unbudgetedSpent: unbudgetedExpense._sum.amount ?? 0,
   });
 
   if (summary.availableToBudget >= 0) {
     return null;
   }
 
-  return "Perubahan income membuat budget bulan ini melebihi saldo budgetable. Kurangi budget terlebih dahulu sebelum mengubah atau menghapus income ini.";
+  return "Perubahan income membuat budget dan unbudgeted expense bulan ini melebihi saldo budgetable. Kurangi budget terlebih dahulu sebelum mengubah atau menghapus income ini.";
 }

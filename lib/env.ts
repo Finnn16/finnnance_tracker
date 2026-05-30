@@ -24,7 +24,7 @@ const envSchema = z.object({
   ALLOWED_EMAILS: emailAllowlistSchema,
   ADMIN_EMAIL: emailSchema,
   USER_EMAIL: emailSchema,
-  GEMINI_API_KEY: z.string().min(1),
+  GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().min(1).optional(),
   GEMINI_FALLBACK_MODELS: z.string().optional(),
 });
@@ -45,7 +45,7 @@ export const env = {
   allowedEmails: parsedEnv.data.ALLOWED_EMAILS,
   adminEmail: parsedEnv.data.ADMIN_EMAIL,
   userEmail: parsedEnv.data.USER_EMAIL,
-  geminiApiKey: parsedEnv.data.GEMINI_API_KEY,
+  geminiApiKey: parsedEnv.data.GEMINI_API_KEY?.trim() || "",
   geminiModel: parsedEnv.data.GEMINI_MODEL || "gemini-3.5-flash",
   geminiFallbackModels:
     parsedEnv.data.GEMINI_FALLBACK_MODELS?.split(",")

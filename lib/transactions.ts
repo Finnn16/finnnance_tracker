@@ -19,6 +19,13 @@ const transactionTypes = new Set(
   transactionTypeOptions.map((option) => option.value),
 );
 
+const transferFeeOptions = {
+  BI_FAST: { label: "BI-FAST", amount: 2_500 },
+  INTERNET: { label: "Internet", amount: 6_500 },
+} as const;
+
+type TransferFeeMethod = keyof typeof transferFeeOptions;
+
 export type TransactionPayload = {
   type: TransactionType;
   amount: number;
@@ -36,6 +43,8 @@ export type TransactionPayload = {
   transactionDate: Date;
   transferFeeEnabled: boolean;
   transferFeeAmount: number | null;
+  transferFeeMethod: TransferFeeMethod | null;
+  transferFeeDescription: string | null;
   transferFeeBudgetCategoryId: string | null;
   transferFeeBudgetMonth: Date | null;
   transferFeeIsPrepaid: boolean;
@@ -79,6 +88,7 @@ export function validateTransactionPayload(
     transactionDate?: unknown;
     transferFeeEnabled?: unknown;
     transferFeeAmount?: unknown;
+    transferFeeMethod?: unknown;
   } | null;
 
   const type = typeof input?.type === "string" ? input.type : "";
@@ -119,12 +129,30 @@ export function validateTransactionPayload(
     }
   }
 
-  const transferFeeEnabled = input?.transferFeeEnabled === true;
-  const transferFeeAmount = transferFeeEnabled
-    ? parseIntegerAmount(input?.transferFeeAmount)
-    : null;
+  const transferFeeEnabled =
+    (transactionType === TransactionType.TRANSFER ||
+      transactionType === TransactionType.EXPENSE) &&
+    input?.transferFeeEnabled === true;
+  const transferFeeMethod =
+    typeof input?.transferFeeMethod === "string" &&
+    input.transferFeeMethod in transferFeeOptions
+      ? (input.transferFeeMethod as TransferFeeMethod)
+      : null;
+  const transferFeeAmount =
+    transferFeeEnabled && transferFeeMethod
+      ? transferFeeOptions[transferFeeMethod].amount
+      : transferFeeEnabled
+        ? parseIntegerAmount(input?.transferFeeAmount)
+        : null;
 
-  if (transactionType === TransactionType.TRANSFER && transferFeeEnabled) {
+  if (transferFeeEnabled) {
+    if (!transferFeeMethod) {
+      return {
+        ok: false,
+        error: "Pilih metode biaya admin transfer.",
+      };
+    }
+
     if (transferFeeAmount === null || transferFeeAmount <= 0) {
       return {
         ok: false,
@@ -175,7 +203,13 @@ export function validateTransactionPayload(
     transactionType !== TransactionType.INCOME ||
     input?.allocateToBudget !== false;
   const isBudgetedTransferFee =
-    transactionType === TransactionType.TRANSFER && transferFeeEnabled;
+    transferFeeEnabled &&
+    (transactionType === TransactionType.TRANSFER ||
+      (transactionType === TransactionType.EXPENSE && !isUnbudgetedExpense));
+  const shouldTrackTransferFeePeriod =
+    transferFeeEnabled &&
+    (transactionType === TransactionType.TRANSFER ||
+      transactionType === TransactionType.EXPENSE);
   const requiresBudgetPeriod =
     transactionType === TransactionType.EXPENSE ||
     (transactionType === TransactionType.INCOME && allocateIncomeToBudget) ||
@@ -276,16 +310,35 @@ export function validateTransactionPayload(
       description: description || getDefaultDescription(transactionType),
       transactionDate,
       transferFeeEnabled:
-        transactionType === TransactionType.TRANSFER && transferFeeEnabled,
+        (transactionType === TransactionType.TRANSFER ||
+          transactionType === TransactionType.EXPENSE) &&
+        transferFeeEnabled,
       transferFeeAmount:
-        transactionType === TransactionType.TRANSFER && transferFeeEnabled
+        (transactionType === TransactionType.TRANSFER ||
+          transactionType === TransactionType.EXPENSE) &&
+        transferFeeEnabled
           ? transferFeeAmount
+          : null,
+      transferFeeMethod:
+        (transactionType === TransactionType.TRANSFER ||
+          transactionType === TransactionType.EXPENSE) &&
+        transferFeeEnabled
+          ? transferFeeMethod
+          : null,
+      transferFeeDescription:
+        (transactionType === TransactionType.TRANSFER ||
+          transactionType === TransactionType.EXPENSE) &&
+        transferFeeEnabled &&
+        transferFeeMethod
+          ? `Biaya Admin ${transferFeeOptions[transferFeeMethod].label}`
           : null,
       transferFeeBudgetCategoryId: isBudgetedTransferFee
         ? budgetCategoryId
         : null,
-      transferFeeBudgetMonth: isBudgetedTransferFee ? budgetMonth : null,
-      transferFeeIsPrepaid: isBudgetedTransferFee
+      transferFeeBudgetMonth: shouldTrackTransferFeePeriod
+        ? budgetMonth
+        : null,
+      transferFeeIsPrepaid: shouldTrackTransferFeePeriod && budgetMonth
         ? isPrepaidTransaction(transactionDate, budgetMonth!)
         : false,
     },

@@ -407,6 +407,7 @@ export async function getDashboardData(
     budgetableIncome: budgetableIncome._sum.budgetableAmount ?? 0,
     totalBudget,
     totalSpent: budgetedSpent,
+    unbudgetedSpent,
   });
   const budgetStatus: BudgetStatus =
     globalAllocation.shortfall > 0

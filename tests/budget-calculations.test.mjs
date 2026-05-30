@@ -32,17 +32,19 @@ test("income can be recorded without contributing to a budget period", () => {
   );
 });
 
-test("available to budget is independent from spending progress", () => {
+test("available to budget accounts for unbudgeted spending", () => {
   assert.deepEqual(
     calculateBudgetPeriodSummary({
       budgetableIncome: 8_500_000,
       totalBudget: 8_000_000,
       totalSpent: 2_000_000,
+      unbudgetedSpent: 125_000,
     }),
     {
       budgetableIncome: 8_500_000,
       totalBudget: 8_000_000,
-      availableToBudget: 500_000,
+      unbudgetedSpent: 125_000,
+      availableToBudget: 375_000,
       totalSpent: 2_000_000,
       remainingBudget: 6_000_000,
     },
@@ -57,6 +59,7 @@ test("spent may exceed the envelope without changing period allocation", () => {
   });
 
   assert.equal(summary.availableToBudget, 0);
+  assert.equal(summary.unbudgetedSpent, 0);
   assert.equal(summary.remainingBudget, -250_000);
 });
 

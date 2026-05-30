@@ -39,6 +39,7 @@ type WalletOption = {
 
 type CategoryOption = {
   id: string;
+  key: string;
   name: string;
   type: TransactionType;
   group: string;
@@ -97,6 +98,7 @@ type TransactionFormState = {
   savingsAmount: string;
   savingsNote: string;
   transferFeeEnabled: boolean;
+  transferFeeMethod: string;
   transferFeeAmount: string;
 };
 
@@ -113,6 +115,11 @@ const transactionHistoryTabs = [
   { label: "Both", value: "both" },
   { label: "Income", value: "income" },
   { label: "Expense", value: "expense" },
+] as const;
+
+const transferFeeOptions = [
+  { label: "BI-FAST", value: "BI_FAST", amount: 2_500 },
+  { label: "Internet", value: "INTERNET", amount: 6_500 },
 ] as const;
 
 function todayInputValue() {
@@ -210,6 +217,7 @@ function createEmptyForm(
     savingsAmount: "",
     savingsNote: "",
     transferFeeEnabled: false,
+    transferFeeMethod: "",
     transferFeeAmount: "",
   };
 }
@@ -253,6 +261,7 @@ function transactionToForm(
       : "",
     savingsNote: transaction.savingsNote || "",
     transferFeeEnabled: false,
+    transferFeeMethod: "",
     transferFeeAmount: "",
   };
 }
@@ -280,6 +289,7 @@ function toPayload(form: TransactionFormState) {
     savingsAmount: form.allocateSavings ? form.savingsAmount : null,
     savingsNote: form.allocateSavings ? form.savingsNote || null : null,
     transferFeeEnabled: form.transferFeeEnabled,
+    transferFeeMethod: form.transferFeeEnabled ? form.transferFeeMethod : null,
     transferFeeAmount: form.transferFeeAmount || null,
   };
 }
@@ -331,6 +341,7 @@ export function TransactionsClient({
   );
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCreateTypePickerOpen, setIsCreateTypePickerOpen] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
   const [isMobilePaginationVisible, setIsMobilePaginationVisible] =
@@ -442,6 +453,29 @@ export function TransactionsClient({
   const handleSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     updateHistoryParams({ page: 1, query: searchDraft });
+  };
+
+  const openCreateDialogForType = (type: TransactionType) => {
+    const baseForm = createEmptyForm(wallets, categories, preferences);
+
+    setCreateForm({
+      ...baseForm,
+      type,
+      categoryGroup: getDefaultCategoryGroup(categories, type),
+      categoryId: "",
+      budgetCategoryId: "",
+      transferToWalletId: "",
+      isUnbudgetedExpense: false,
+      allocateToBudget: true,
+      allocateSavings: false,
+      savingsAmount: "",
+      savingsNote: "",
+      transferFeeEnabled: false,
+      transferFeeMethod: "",
+      transferFeeAmount: "",
+    });
+    setIsCreateTypePickerOpen(false);
+    setIsCreateDialogOpen(true);
   };
 
   const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
@@ -722,7 +756,7 @@ export function TransactionsClient({
             {transactions.map((transaction) => (
             <article
               key={transaction.id}
-              className="rounded-lg bg-white p-3 shadow-sm sm:p-5"
+              className="rounded-lg bg-white p-2.5 shadow-sm sm:p-5"
             >
                 {editTransactionId === transaction.id ? (
                   <TransactionForm
@@ -804,7 +838,7 @@ export function TransactionsClient({
 
       <button
         type="button"
-        onClick={() => setIsCreateDialogOpen(true)}
+        onClick={() => setIsCreateTypePickerOpen(true)}
         aria-label="Tambah transaksi"
         title="Tambah transaksi"
         className="fixed bottom-36 right-4 z-50 flex h-11 w-11 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 active:scale-95 lg:hidden"
@@ -859,6 +893,67 @@ export function TransactionsClient({
           </button>
         </div>
       </div>
+
+      {isCreateTypePickerOpen ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-end justify-center bg-zinc-950/45 p-3 lg:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="transaction-type-dialog-title"
+          onClick={() => setIsCreateTypePickerOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl bg-white p-4 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-zinc-100 pb-3">
+              <h2
+                id="transaction-type-dialog-title"
+                className="text-base font-semibold text-zinc-950"
+              >
+                Add Transaction
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsCreateTypePickerOpen(false)}
+                aria-label="Tutup pilihan transaksi"
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600"
+              >
+                <span className="text-xl leading-none" aria-hidden="true">
+                  X
+                </span>
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-2">
+              {transactionTypeOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => openCreateDialogForType(option.value)}
+                  className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-4 py-3 text-left transition hover:bg-zinc-50 active:scale-[0.99]"
+                >
+                  <span>
+                    <span className="block text-sm font-semibold text-zinc-950">
+                      {option.label}
+                    </span>
+                    <span className="mt-1 block text-xs text-zinc-500">
+                      {option.value === TransactionType.EXPENSE
+                        ? "Catat pengeluaran dan envelope"
+                        : option.value === TransactionType.INCOME
+                          ? "Catat pemasukan dan savings"
+                          : "Pindah saldo antar wallet"}
+                    </span>
+                  </span>
+                  <span className="text-lg font-semibold text-zinc-400">
+                    &gt;
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {isCreateDialogOpen ? (
         <div
@@ -1058,33 +1153,69 @@ function TransactionRow({
 }) {
   const signedAmount = getSignedAmount(transaction);
   const isTransfer = transaction.type === TransactionType.TRANSFER;
+  const amountClass =
+    signedAmount > 0
+      ? "text-base font-bold text-emerald-700 sm:text-xl"
+      : signedAmount < 0
+        ? "text-base font-bold text-red-700 sm:text-xl"
+        : "text-base font-bold text-zinc-950 sm:text-xl";
 
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-          <h2 className="text-base font-semibold text-zinc-950 sm:text-lg">
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <div className="flex items-start justify-between gap-3 sm:hidden">
+          <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-950">
             {formatDisplayTitle(transaction.description)}
           </h2>
-          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold text-zinc-700 sm:py-1 sm:text-xs">
+          <p className={amountClass}>
+            <SensitiveAmount>
+              {isTransfer
+                ? formatRupiah(transaction.amount)
+                : formatRupiah(signedAmount)}
+            </SensitiveAmount>
+          </p>
+        </div>
+
+        <div className="hidden flex-wrap items-center gap-1.5 sm:flex sm:gap-2">
+          <h2 className="text-lg font-semibold text-zinc-950">
+            {formatDisplayTitle(transaction.description)}
+          </h2>
+          <span className="rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
             {getTransactionTypeLabel(transaction.type)}
           </span>
           {transaction.isPrepaid ? (
-            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700 sm:py-1 sm:text-xs">
+            <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">
               Paid Early
             </span>
           ) : null}
           {transaction.isUnbudgetedExpense ? (
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 sm:py-1 sm:text-xs">
+            <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">
               Unbudgeted Expense
             </span>
           ) : null}
         </div>
-        <p className="mt-1 text-xs text-zinc-500 sm:text-sm">
-          {new Date(transaction.transactionDate).toLocaleDateString("id-ID")} -{" "}
-          {transaction.userName}
+
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 sm:hidden">
+          <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700">
+            {getTransactionTypeLabel(transaction.type)}
+          </span>
+          {transaction.isPrepaid ? (
+            <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+              Paid Early
+            </span>
+          ) : null}
+          {transaction.isUnbudgetedExpense ? (
+            <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+              Unbudgeted
+            </span>
+          ) : null}
+        </div>
+
+        <p className="mt-1 truncate text-[11px] text-zinc-500 sm:text-sm">
+          {new Date(transaction.transactionDate).toLocaleDateString("id-ID")}{" "}
+          - {transaction.userName}
         </p>
-        <p className="mt-1 text-xs text-zinc-500 sm:text-sm">
+        <p className="mt-1 truncate text-[11px] text-zinc-500 sm:text-sm">
           {isTransfer
             ? `${transaction.walletName} -> ${transaction.transferToWalletName}`
             : `${transaction.walletName} - ${transaction.categoryName}${
@@ -1095,16 +1226,8 @@ function TransactionRow({
         </p>
       </div>
 
-      <div className="flex flex-col gap-2 sm:items-end sm:gap-3">
-        <p
-          className={
-            signedAmount > 0
-              ? "text-lg font-bold text-emerald-700 sm:text-xl"
-              : signedAmount < 0
-                ? "text-lg font-bold text-red-700 sm:text-xl"
-                : "text-lg font-bold text-zinc-950 sm:text-xl"
-          }
-        >
+      <div className="flex flex-col gap-1.5 sm:items-end sm:gap-3">
+        <p className={`hidden sm:block ${amountClass}`}>
           <SensitiveAmount>
             {isTransfer
               ? formatRupiah(transaction.amount)
@@ -1136,11 +1259,11 @@ function TransactionRow({
           )
         ) : null}
         {transaction.canManage ? (
-          <div className="flex gap-2">
+          <div className="flex gap-1.5 sm:gap-2">
             <button
               type="button"
               onClick={onEdit}
-              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 sm:py-2 sm:text-sm"
+              className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-[11px] font-medium text-zinc-700 transition hover:bg-zinc-50 sm:rounded-lg sm:px-3 sm:py-2 sm:text-sm"
             >
               Edit
             </button>
@@ -1148,7 +1271,7 @@ function TransactionRow({
               type="button"
               onClick={onDelete}
               disabled={isSubmitting}
-              className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 sm:py-2 sm:text-sm"
+              className="rounded-md border border-red-200 px-2.5 py-1.5 text-[11px] font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 sm:rounded-lg sm:px-3 sm:py-2 sm:text-sm"
             >
               Delete
             </button>
@@ -1193,6 +1316,13 @@ function TransactionForm({
   const selectedGroupCategories = selectableCategories.filter(
     (category) => category.group === form.categoryGroup,
   );
+  const selectedCategory = categories.find(
+    (category) => category.id === form.categoryId,
+  );
+  const isTransferOutExpense =
+    form.type === TransactionType.EXPENSE &&
+    selectedCategory?.key === "transfer_out";
+  const canUseTransferFee = isTransfer || isTransferOutExpense;
   const parsedAmount = parseIntegerAmount(form.amount) || 0;
   const parsedSavingsAmount = form.allocateSavings
     ? parseIntegerAmount(form.savingsAmount) || 0
@@ -1204,9 +1334,20 @@ function TransactionForm({
   });
   const parsedTransferFeeAmount =
     parseIntegerAmount(form.transferFeeAmount) || 0;
+  const selectedTransferFeeOption = transferFeeOptions.find(
+    (option) => option.value === form.transferFeeMethod,
+  );
   const budgetImpactAmount = isTransfer
     ? parsedTransferFeeAmount
-    : parsedAmount;
+    : parsedAmount +
+      (isTransferOutExpense && form.transferFeeEnabled
+        ? parsedTransferFeeAmount
+        : 0);
+  const unbudgetedImpactAmount =
+    parsedAmount +
+    (isTransferOutExpense && form.transferFeeEnabled
+      ? parsedTransferFeeAmount
+      : 0);
   const availableBudgetCategories = budgetCategories.filter((category) =>
     category.periods.some((period) => period.month === form.budgetMonth),
   );
@@ -1268,6 +1409,7 @@ function TransactionForm({
                 savingsAmount: "",
                 savingsNote: "",
                 transferFeeEnabled: false,
+                transferFeeMethod: "",
                 transferFeeAmount: "",
               })
             }
@@ -1516,6 +1658,18 @@ function TransactionForm({
                     ...form,
                     categoryId: event.target.value,
                     categoryGroup: category?.group || form.categoryGroup,
+                    transferFeeEnabled:
+                      category?.key === "transfer_out"
+                        ? form.transferFeeEnabled
+                        : false,
+                    transferFeeMethod:
+                      category?.key === "transfer_out"
+                        ? form.transferFeeMethod
+                        : "",
+                    transferFeeAmount:
+                      category?.key === "transfer_out"
+                        ? form.transferFeeAmount
+                        : "",
                   });
                 }}
                 className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
@@ -1533,7 +1687,7 @@ function TransactionForm({
           </>
         )}
 
-        {isTransfer && !onCancel ? (
+        {canUseTransferFee && !onCancel ? (
           <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-3 sm:p-4">
             <label className="flex items-center gap-2 text-sm font-medium text-zinc-700">
               <input
@@ -1543,8 +1697,12 @@ function TransactionForm({
                   onChange({
                     ...form,
                     transferFeeEnabled: event.target.checked,
+                    transferFeeMethod: event.target.checked
+                      ? form.transferFeeMethod || transferFeeOptions[0].value
+                      : "",
                     transferFeeAmount: event.target.checked
-                      ? form.transferFeeAmount
+                      ? form.transferFeeAmount ||
+                        formatAmountInput(transferFeeOptions[0].amount)
                       : "",
                   })
                 }
@@ -1556,94 +1714,126 @@ function TransactionForm({
               <div className="mt-3 space-y-3">
                 <div>
                   <label className="mb-2 block text-sm font-medium text-zinc-700">
-                    Nominal Biaya Admin
+                    Metode Biaya Admin
                   </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {transferFeeOptions.map((option) => {
+                      const isSelected = form.transferFeeMethod === option.value;
+
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() =>
+                            onChange({
+                              ...form,
+                              transferFeeMethod: option.value,
+                              transferFeeAmount: formatAmountInput(
+                                option.amount,
+                              ),
+                            })
+                          }
+                          className={
+                            isSelected
+                              ? "rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-left text-sm font-semibold text-indigo-700 ring-2 ring-indigo-100"
+                              : "rounded-lg border border-zinc-200 bg-white px-3 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
+                          }
+                        >
+                          <span className="block">{option.label}</span>
+                          <span className="mt-1 block text-xs text-zinc-500">
+                            {formatRupiah(option.amount)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                   <input
+                    type="hidden"
                     value={form.transferFeeAmount}
-                    onChange={(event) =>
-                      onChange({
-                        ...form,
-                        transferFeeAmount: normalizeAmountInput(
-                          event.target.value,
-                        ),
-                      })
-                    }
-                    inputMode="numeric"
-                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                    placeholder="Rp 1.000"
                     required
                   />
                 </div>
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-zinc-700">
-                    Admin Fee Budget Period
-                  </label>
-                  <input
-                    type="month"
-                    value={form.budgetMonth}
-                    onChange={(event) =>
-                      onChange({
-                        ...form,
-                        budgetMonth: event.target.value,
-                        budgetCategoryId: getBudgetCategoryIdForMonth(
-                          budgetCategories,
-                          form.budgetCategoryId,
-                          event.target.value,
-                        ),
-                      })
-                    }
-                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-zinc-700">
-                    Admin Fee Budget Category
-                  </label>
-                  <select
-                    value={form.budgetCategoryId}
-                    onChange={(event) =>
-                      onChange({
-                        ...form,
-                        budgetCategoryId: event.target.value,
-                      })
-                    }
-                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                    required
-                  >
-                    <option value="">
-                      {availableBudgetCategories.length === 0
-                        ? "No assigned budget category for this period"
-                        : "Select budget category"}
-                    </option>
-                    {availableBudgetCategories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.name}
-                      </option>
-                    ))}
-                  </select>
-                  {selectedBudgetAllocation &&
-                  currentCategoryRemaining !== null &&
-                  categoryRemainingAfterSave !== null ? (
-                    <div className="mt-3 rounded-lg bg-white px-3 py-3 text-xs text-zinc-600 ring-1 ring-zinc-200">
-                      <p>
-                        Current remaining:{" "}
-                        {formatRupiah(currentCategoryRemaining)}
-                      </p>
-                      {categoryRemainingAfterSave < 0 ? (
-                        <p className="mt-2 font-semibold text-red-700">
-                          Fee will overspend by:{" "}
-                          {formatRupiah(Math.abs(categoryRemainingAfterSave))}
-                        </p>
-                      ) : (
-                        <p className="mt-2 font-semibold text-emerald-700">
-                          Remaining after fee:{" "}
-                          {formatRupiah(categoryRemainingAfterSave)}
-                        </p>
-                      )}
+                {isTransfer ? (
+                  <>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-zinc-700">
+                        Admin Fee Budget Period
+                      </label>
+                      <input
+                        type="month"
+                        value={form.budgetMonth}
+                        onChange={(event) =>
+                          onChange({
+                            ...form,
+                            budgetMonth: event.target.value,
+                            budgetCategoryId: getBudgetCategoryIdForMonth(
+                              budgetCategories,
+                              form.budgetCategoryId,
+                              event.target.value,
+                            ),
+                          })
+                        }
+                        className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                        required
+                      />
                     </div>
-                  ) : null}
-                </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-zinc-700">
+                        Admin Fee Budget Category
+                      </label>
+                      <select
+                        value={form.budgetCategoryId}
+                        onChange={(event) =>
+                          onChange({
+                            ...form,
+                            budgetCategoryId: event.target.value,
+                          })
+                        }
+                        className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                        required
+                      >
+                        <option value="">
+                          {availableBudgetCategories.length === 0
+                            ? "No assigned budget category for this period"
+                            : "Select budget category"}
+                        </option>
+                        {availableBudgetCategories.map((category) => (
+                          <option key={category.id} value={category.id}>
+                            {category.name}
+                          </option>
+                        ))}
+                      </select>
+                      {selectedBudgetAllocation &&
+                      currentCategoryRemaining !== null &&
+                      categoryRemainingAfterSave !== null ? (
+                        <div className="mt-3 rounded-lg bg-white px-3 py-3 text-xs text-zinc-600 ring-1 ring-zinc-200">
+                          <p>
+                            Current remaining:{" "}
+                            {formatRupiah(currentCategoryRemaining)}
+                          </p>
+                          {categoryRemainingAfterSave < 0 ? (
+                            <p className="mt-2 font-semibold text-red-700">
+                              Fee will overspend by:{" "}
+                              {formatRupiah(
+                                Math.abs(categoryRemainingAfterSave),
+                              )}
+                            </p>
+                          ) : (
+                            <p className="mt-2 font-semibold text-emerald-700">
+                              Remaining after fee:{" "}
+                              {formatRupiah(categoryRemainingAfterSave)}
+                            </p>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  </>
+                ) : (
+                  <p className="rounded-lg bg-white px-3 py-2 text-xs text-zinc-600 ring-1 ring-zinc-200">
+                    Biaya admin mengikuti budget period dan budget category
+                    transaksi Transfer Keluar.
+                  </p>
+                )}
               </div>
             ) : null}
           </div>
@@ -1811,6 +2001,62 @@ function TransactionForm({
                 )}
               </div>
             ) : null}
+          </div>
+        ) : null}
+
+        {form.type === TransactionType.EXPENSE && form.isUnbudgetedExpense ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-800">
+            <p className="font-semibold">Impact preview</p>
+            <p className="mt-1">
+              Available to Budget untuk {formatBudgetPeriod(form.budgetMonth)}{" "}
+              akan berkurang sebesar {formatRupiah(unbudgetedImpactAmount)}.
+            </p>
+            <p className="mt-1 text-amber-700">
+              Expense ini tidak memotong envelope, tapi tetap mengurangi saldo
+              wallet.
+            </p>
+          </div>
+        ) : null}
+
+        {form.type === TransactionType.EXPENSE &&
+        !form.isUnbudgetedExpense &&
+        selectedBudgetAllocation &&
+        currentCategoryRemaining !== null &&
+        categoryRemainingAfterSave !== null ? (
+          <div
+            className={
+              categoryRemainingAfterSave < 0
+                ? "rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-xs text-red-800"
+                : "rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs text-emerald-800"
+            }
+          >
+            <p className="font-semibold">Impact preview</p>
+            <p className="mt-1">
+              Envelope {selectedBudgetAllocation ? "akan tersisa" : ""}{" "}
+              {formatRupiah(categoryRemainingAfterSave)} setelah transaksi ini.
+            </p>
+            {categoryRemainingAfterSave < 0 ? (
+              <p className="mt-1">
+                Ini akan membuat envelope overspent sebesar{" "}
+                {formatRupiah(Math.abs(categoryRemainingAfterSave))}.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {canUseTransferFee &&
+        form.transferFeeEnabled &&
+        parsedTransferFeeAmount > 0 ? (
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 text-xs text-blue-800">
+            <p className="font-semibold">Impact preview</p>
+            <p className="mt-1">
+              {isTransfer
+                ? "Transfer dicatat sebagai perpindahan saldo."
+                : "Transfer keluar dicatat sebagai expense utama."}{" "}
+              Biaya admin {selectedTransferFeeOption?.label || "transfer"}{" "}
+              sebesar {formatRupiah(parsedTransferFeeAmount)} mengikuti budget
+              period dan allocation transaksi ini.
+            </p>
           </div>
         ) : null}
 

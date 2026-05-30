@@ -628,16 +628,30 @@ function WidgetHeader({
   );
 }
 
+function InfoHint({ label }: { label: string }) {
+  return (
+    <span
+      title={label}
+      aria-label={label}
+      className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-zinc-300 text-[10px] font-semibold text-zinc-500"
+    >
+      i
+    </span>
+  );
+}
+
 function SummaryMetricCard({
   label,
   value,
   detail,
   tone,
+  href,
 }: {
   label: string;
   value: string;
   detail: string;
   tone: "blue" | "green" | "red";
+  href?: string;
 }) {
   const amountPlaceholder = value.trim().endsWith("%") ? "**%" : "Rp.*******";
   const toneClass =
@@ -647,8 +661,8 @@ function SummaryMetricCard({
         ? "bg-emerald-50 text-emerald-700"
         : "bg-red-50 text-red-700";
 
-  return (
-    <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+  const card = (
+    <article className="h-full rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm transition hover:border-blue-200 hover:shadow-md">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-medium text-zinc-500">{label}</p>
@@ -666,6 +680,20 @@ function SummaryMetricCard({
       </div>
     </article>
   );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        aria-label={`Open ${label}`}
+        className="block rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      >
+        {card}
+      </Link>
+    );
+  }
+
+  return card;
 }
 
 function MonthlySnapshot({ data }: { data: DashboardData }) {
@@ -678,36 +706,42 @@ function MonthlySnapshot({ data }: { data: DashboardData }) {
       value: formatRupiah(data.summary.income),
       detail: "Bulan ini",
       tone: "green" as const,
+      href: "/transactions?tab=income",
     },
     {
       label: "Expense",
       value: formatRupiah(data.summary.expense),
       detail: "Bulan ini",
       tone: "red" as const,
+      href: "/transactions?tab=expense",
     },
     {
       label: "Total Saldo",
       value: formatRupiah(data.summary.totalBalance),
       detail: `${data.wallets.length} wallet aktif`,
       tone: "blue" as const,
+      href: "/wallets",
     },
     {
       label: "Savings",
       value: formatRupiah(data.savings.currentBalance),
       detail: "Reserved money",
       tone: "blue" as const,
+      href: "/savings",
     },
     {
       label: "Budgetable Income",
       value: formatRupiah(data.budget.budgetableIncome),
       detail: "Budget period",
       tone: "green" as const,
+      href: "/budgets",
     },
     {
       label: "Budget Used",
       value: `${data.budget.usedPercentage}%`,
       detail: "Budget bulan ini",
       tone: isHealthy ? ("green" as const) : ("red" as const),
+      href: "/budgets",
     },
   ];
 
@@ -754,13 +788,17 @@ function MonthlySnapshot({ data }: { data: DashboardData }) {
             value={metric.value}
             detail={metric.detail}
             tone={metric.tone}
+            href={metric.href}
           />
         ))}
       </div>
 
       <div className="rounded-xl border border-zinc-200 bg-white p-4">
         <div className="flex items-center justify-between gap-3 text-sm">
-          <span className="font-medium text-zinc-700">Budget status</span>
+          <span className="inline-flex items-center gap-1.5 font-medium text-zinc-700">
+            Budget status
+            <InfoHint label="Safe berarti budget dan savings masih ditopang saldo wallet. Overplanned berarti budget melebihi budgetable income. Underfunded berarti alokasi aktif melebihi saldo wallet." />
+          </span>
           <span
             className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
               budgetTone === "green"
@@ -800,7 +838,8 @@ function MonthlySnapshot({ data }: { data: DashboardData }) {
             <SensitiveAmount>
               {formatRupiah(data.budget.availableToBudget)}
             </SensitiveAmount>{" "}
-            available to budget
+            available to budget{" "}
+            <InfoHint label="Sisa budgetable income setelah total budget dan unbudgeted expense." />
           </span>
         </div>
         {data.budget.fundingShortfall > 0 ? (
@@ -809,6 +848,9 @@ function MonthlySnapshot({ data }: { data: DashboardData }) {
             <SensitiveAmount>
               {formatRupiah(data.budget.fundingShortfall)}
             </SensitiveAmount>
+            <span className="ml-1">
+              <InfoHint label="Selisih saat total savings dan sisa budget aktif lebih besar dari total saldo wallet." />
+            </span>
             . Sebagian savings atau budget aktif belum ditopang saldo wallet.
           </p>
         ) : null}
@@ -1048,7 +1090,10 @@ function BudgetProgress({ budget }: { budget: BudgetView }) {
           </p>
         </div>
         <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-zinc-200">
-          <p className="text-zinc-500">Available to Budget</p>
+          <p className="inline-flex items-center gap-1 text-zinc-500">
+            Available to Budget
+            <InfoHint label="Sisa budgetable income setelah total budget dan unbudgeted expense." />
+          </p>
           <p className="mt-1 font-semibold text-zinc-950">
             <SensitiveAmount>
               {formatRupiah(budget.availableToBudget)}
@@ -1076,7 +1121,10 @@ function BudgetProgress({ budget }: { budget: BudgetView }) {
           </p>
         </div>
         <div className="rounded-xl bg-amber-50 px-3 py-2 ring-1 ring-amber-200">
-          <p className="text-amber-700">Unbudgeted Expense</p>
+          <p className="inline-flex items-center gap-1 text-amber-700">
+            Unbudgeted Expense
+            <InfoHint label="Expense yang tidak memotong envelope, tapi tetap mengurangi available to budget dan saldo wallet." />
+          </p>
           <p className="mt-1 font-semibold text-amber-800">
             <SensitiveAmount>
               {formatRupiah(budget.unbudgetedSpent)}
@@ -1084,7 +1132,10 @@ function BudgetProgress({ budget }: { budget: BudgetView }) {
           </p>
         </div>
         <div className="rounded-xl bg-red-50 px-3 py-2 ring-1 ring-red-200">
-          <p className="text-red-700">Funding Shortfall</p>
+          <p className="inline-flex items-center gap-1 text-red-700">
+            Funding Shortfall
+            <InfoHint label="Selisih saat total savings dan sisa budget aktif lebih besar dari total saldo wallet." />
+          </p>
           <p className="mt-1 font-semibold text-red-800">
             <SensitiveAmount>
               {formatRupiah(budget.fundingShortfall)}

@@ -484,17 +484,20 @@ export async function DELETE(
         });
       }
 
-      if (existingTransaction.type === TransactionType.TRANSFER) {
-        const linkedFee = await tx.transaction.findFirst({
+      if (
+        existingTransaction.type === TransactionType.TRANSFER ||
+        existingTransaction.type === TransactionType.EXPENSE
+      ) {
+        const linkedFees = await tx.transaction.findMany({
           where: {
             userId: existingTransaction.userId,
             type: TransactionType.EXPENSE,
             source: TransactionSource.SYSTEM,
-            rawMessage: `transfer_fee:${existingTransaction.id}`,
+            rawMessage: { endsWith: `:${existingTransaction.id}` },
           },
         });
 
-        if (linkedFee) {
+        for (const linkedFee of linkedFees) {
           await applyTransactionBalanceEffect(tx, linkedFee, -1);
           await tx.transaction.delete({ where: { id: linkedFee.id } });
         }

@@ -14,15 +14,18 @@ export function calculateBudgetPeriodSummary({
   budgetableIncome,
   totalBudget,
   totalSpent,
+  unbudgetedSpent = 0,
 }: {
   budgetableIncome: number;
   totalBudget: number;
   totalSpent: number;
+  unbudgetedSpent?: number;
 }) {
   return {
     budgetableIncome,
     totalBudget,
-    availableToBudget: budgetableIncome - totalBudget,
+    unbudgetedSpent,
+    availableToBudget: budgetableIncome - totalBudget - unbudgetedSpent,
     totalSpent,
     remainingBudget: totalBudget - totalSpent,
   };

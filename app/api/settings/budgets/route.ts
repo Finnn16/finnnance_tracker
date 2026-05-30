@@ -109,7 +109,8 @@ export async function POST(request: NextRequest) {
   }
 
   const selectedMonthRange = budgetMonthRange(result.data.month)!;
-  const [monthBudgets, budgetableIncome] = await Promise.all([
+  const [monthBudgets, budgetableIncome, unbudgetedExpense] =
+    await Promise.all([
       prisma.budget.findMany({
         where: { userId: result.data.userId, month: selectedMonthRange },
         select: { id: true, budgetCategoryId: true, amount: true },
@@ -121,6 +122,15 @@ export async function POST(request: NextRequest) {
           budgetMonth: selectedMonthRange,
         },
         _sum: { budgetableAmount: true },
+      }),
+      prisma.transaction.aggregate({
+        where: {
+          userId: result.data.userId,
+          type: TransactionType.EXPENSE,
+          budgetCategoryId: null,
+          budgetMonth: selectedMonthRange,
+        },
+        _sum: { amount: true },
       }),
     ]);
 
@@ -141,6 +151,7 @@ export async function POST(request: NextRequest) {
     budgetableIncome: budgetableIncome._sum.budgetableAmount ?? 0,
     totalBudget: budgetedAmountAfterUpsert,
     totalSpent: 0,
+    unbudgetedSpent: unbudgetedExpense._sum.amount ?? 0,
   });
 
   if (
@@ -160,7 +171,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "Budget melebihi saldo budgetable bulan ini. Kurangi nominal budget atau tambahkan income yang dialokasikan ke bulan ini.",
+          "Budget melebihi saldo budgetable bulan ini setelah unbudgeted expense. Kurangi nominal budget, catat expense ke envelope, atau tambahkan income yang dialokasikan ke bulan ini.",
       },
       { status: 400 },
     );

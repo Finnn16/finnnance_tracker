@@ -95,6 +95,7 @@ async function validateTransactionReferences(
     categoryId: string | null;
     budgetCategoryId: string | null;
     budgetMonth: Date | null;
+    transferFeeEnabled: boolean;
     transferFeeBudgetCategoryId: string | null;
     transferFeeBudgetMonth: Date | null;
   },
@@ -137,7 +138,8 @@ async function validateTransactionReferences(
     return null;
   }
 
-  const [wallet, category, budgetAssignment] = await Promise.all([
+  const [wallet, category, budgetAssignment, feeBudgetAssignment] =
+    await Promise.all([
     prisma.wallet.findFirst({
       where: { id: payload.walletId, userId },
       select: { id: true },
@@ -149,7 +151,7 @@ async function validateTransactionReferences(
         isSelectable: true,
         isHidden: false,
       },
-      select: { id: true },
+      select: { id: true, key: true },
     }),
     payload.type === TransactionType.EXPENSE &&
     payload.budgetCategoryId &&
@@ -159,6 +161,17 @@ async function validateTransactionReferences(
             userId,
             month: budgetMonthRange(payload.budgetMonth)!,
             budgetCategoryId: payload.budgetCategoryId,
+            budgetCategory: { isHidden: false },
+          },
+          select: { id: true },
+        })
+      : Promise.resolve(null),
+    payload.transferFeeBudgetCategoryId && payload.transferFeeBudgetMonth
+      ? prisma.budget.findFirst({
+          where: {
+            userId,
+            month: budgetMonthRange(payload.transferFeeBudgetMonth)!,
+            budgetCategoryId: payload.transferFeeBudgetCategoryId,
             budgetCategory: { isHidden: false },
           },
           select: { id: true },
@@ -175,11 +188,23 @@ async function validateTransactionReferences(
   }
 
   if (
+    payload.transferFeeEnabled &&
+    payload.type === TransactionType.EXPENSE &&
+    category.key !== "transfer_out"
+  ) {
+    return "Biaya admin hanya tersedia untuk kategori Transfer Keluar.";
+  }
+
+  if (
     payload.type === TransactionType.EXPENSE &&
     payload.budgetCategoryId &&
     !budgetAssignment
   ) {
     return "Budget category is not assigned for the selected budget month.";
+  }
+
+  if (payload.transferFeeBudgetCategoryId && !feeBudgetAssignment) {
+    return "Budget category is not assigned for the selected admin fee budget period.";
   }
 
   return null;
@@ -335,9 +360,9 @@ export async function POST(request: NextRequest) {
           budgetCategoryId: result.data.transferFeeBudgetCategoryId,
           type: TransactionType.EXPENSE,
           amount: result.data.transferFeeAmount,
-          description: "Biaya Admin",
+          description: result.data.transferFeeDescription || "Biaya Admin",
           source: TransactionSource.SYSTEM,
-          rawMessage: `transfer_fee:${createdTransfer.id}`,
+          rawMessage: `transfer_fee:${result.data.transferFeeMethod || "admin"}:${createdTransfer.id}`,
           transactionDate: result.data.transactionDate,
           budgetMonth:
             result.data.transferFeeBudgetMonth ||

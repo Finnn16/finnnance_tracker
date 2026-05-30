@@ -4,6 +4,8 @@ import { env } from "@/lib/env";
 import { getUnlockedAppUserForRequest } from "@/lib/secure-api-user";
 import { measureServerOperation } from "@/lib/server-performance";
 
+export const dynamic = "force-dynamic";
+
 type AiInsightRequest = {
   periodLabel?: string;
   summary?: {
@@ -313,6 +315,13 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    if (!env.geminiApiKey) {
+      return buildFallbackResponse(
+        body,
+        "GEMINI_API_KEY belum diset; fallback local insight digunakan.",
+      );
+    }
+
     const failures: string[] = [];
 
     for (const model of getGeminiModels()) {
