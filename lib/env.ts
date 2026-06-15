@@ -27,6 +27,8 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().min(1).optional(),
   GEMINI_FALLBACK_MODELS: z.string().optional(),
+  GEMINI_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+  IOS_SHORTCUT_TOKEN: z.string().optional(),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
@@ -46,9 +48,12 @@ export const env = {
   adminEmail: parsedEnv.data.ADMIN_EMAIL,
   userEmail: parsedEnv.data.USER_EMAIL,
   geminiApiKey: parsedEnv.data.GEMINI_API_KEY?.trim() || "",
-  geminiModel: parsedEnv.data.GEMINI_MODEL || "gemini-3.5-flash",
+  geminiModel: parsedEnv.data.GEMINI_MODEL || "gemini-2.5-flash-lite",
   geminiFallbackModels:
     parsedEnv.data.GEMINI_FALLBACK_MODELS?.split(",")
       .map((model) => model.trim())
-      .filter(Boolean) ?? ["gemini-2.5-flash"],
+      .filter(Boolean) ??
+    ["gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-2.5-flash"],
+  geminiTimeoutMs: parsedEnv.data.GEMINI_TIMEOUT_MS ?? 12000,
+  iosShortcutToken: parsedEnv.data.IOS_SHORTCUT_TOKEN?.trim() || "",
 };

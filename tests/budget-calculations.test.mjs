@@ -9,7 +9,7 @@ import {
   isPrepaidTransaction,
   monthInputValue,
   normalizeMonthStart,
-} from "../lib/budget-calculations.ts";
+} from "../packages/core/src/budget-calculations.ts";
 
 test("income allocated to savings only exposes the budgetable remainder", () => {
   assert.equal(
@@ -63,7 +63,7 @@ test("spent may exceed the envelope without changing period allocation", () => {
   assert.equal(summary.remainingBudget, -250_000);
 });
 
-test("global allocation reports wallet shortfall across savings and remaining budgets", () => {
+test("global allocation reports operational cash shortfall across remaining budgets", () => {
   assert.deepEqual(
     calculateGlobalAllocationSummary({
       totalWalletBalance: 5_000_000,
@@ -71,10 +71,10 @@ test("global allocation reports wallet shortfall across savings and remaining bu
       totalActiveBudgetRemaining: 4_500_000,
     }),
     {
-      totalWalletBalance: 5_000_000,
+      totalWalletBalance: 4_000_000,
       totalSavings: 1_000_000,
       totalActiveBudgetRemaining: 4_500_000,
-      allocatedAmount: 5_500_000,
+      allocatedAmount: 4_500_000,
       availableUnallocatedCash: -500_000,
       shortfall: 500_000,
     },
@@ -101,3 +101,5 @@ test("budget period range contains June markers using Jakarta boundaries", () =>
   assert.equal(period.gte.toISOString(), "2026-05-31T17:00:00.000Z");
   assert.equal(period.lt.toISOString(), "2026-06-30T17:00:00.000Z");
 });
+
+

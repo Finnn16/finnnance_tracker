@@ -17,7 +17,12 @@ import {
 } from "@/lib/budgets";
 import { SensitiveAmount } from "@/components/PrivacyMode";
 import { formatDisplayTitle } from "@/lib/display-text";
-import { TransactionType } from "@/lib/prisma-enums";
+import {
+  TransactionConfirmationStatus,
+  TransactionDetailStatus,
+  TransactionSource,
+  TransactionType,
+} from "@/lib/prisma-enums";
 import {
   formatAmountInput,
   formatRupiah,
@@ -71,6 +76,10 @@ type TransactionView = {
   type: TransactionType;
   amount: number;
   description: string;
+  source: TransactionSource;
+  confirmationStatus: TransactionConfirmationStatus;
+  detailStatus: TransactionDetailStatus;
+  needsReview: boolean;
   transactionDate: string;
   budgetMonth: string | null;
   isPrepaid: boolean;
@@ -102,6 +111,13 @@ type TransactionFormState = {
   transferFeeAmount: string;
 };
 
+type QuickAddFormState = {
+  type: TransactionType;
+  amount: string;
+  walletId: string;
+  note: string;
+};
+
 type TransactionPagination = {
   page: number;
   pageSize: number;
@@ -121,6 +137,8 @@ const transferFeeOptions = [
   { label: "BI-FAST", value: "BI_FAST", amount: 2_500 },
   { label: "Internet", value: "INTERNET", amount: 6_500 },
 ] as const;
+
+const amountPresetOptions = [16_000, 20_000, 25_000, 50_000] as const;
 
 function todayInputValue() {
   return new Date().toISOString().slice(0, 10);
@@ -148,13 +166,6 @@ function getCategoryGroups(
   );
 }
 
-function getDefaultCategoryGroup(
-  categories: CategoryOption[],
-  type: TransactionType,
-) {
-  return getCategoryGroups(categories, type)[0] || "";
-}
-
 function getBudgetCategoryIdForMonth(
   budgetCategories: BudgetCategoryOption[],
   budgetCategoryId: string,
@@ -167,6 +178,88 @@ function getBudgetCategoryIdForMonth(
   )
     ? budgetCategoryId
     : "";
+}
+
+function normalizeMatchText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function findMatchingBudgetCategoryId(
+  budgetCategories: BudgetCategoryOption[],
+  category: CategoryOption | undefined,
+  budgetMonth: string,
+) {
+  if (!category) {
+    return "";
+  }
+
+  const categoryName = normalizeMatchText(category.name);
+  const categoryGroup = normalizeMatchText(category.group);
+
+  return (
+    budgetCategories.find((budgetCategory) => {
+      if (!budgetCategory.periods.some((period) => period.month === budgetMonth)) {
+        return false;
+      }
+
+      const budgetName = normalizeMatchText(budgetCategory.name);
+
+      return (
+        budgetName === categoryName ||
+        budgetName === categoryGroup ||
+        budgetName.includes(categoryName) ||
+        categoryName.includes(budgetName)
+      );
+    })?.id || ""
+  );
+}
+
+function inferCategoryFromDescription(
+  value: string,
+  categories: CategoryOption[],
+  type: TransactionType,
+) {
+  const note = value.toLowerCase();
+
+  if (!note.trim()) {
+    return null;
+  }
+
+  const candidates = categories.filter((category) => category.type === type);
+  const keywordGroups: Array<{ keywords: string[]; matches: string[] }> = [
+    {
+      keywords: ["ayam", "geprek", "makan", "lunch", "sarapan", "kopi", "coffee"],
+      matches: ["makan", "food", "kuliner", "coffee", "kopi"],
+    },
+    {
+      keywords: ["kost", "kos", "sewa"],
+      matches: ["kost", "kos", "rent"],
+    },
+    {
+      keywords: ["gopay", "ovo", "dana", "top up", "topup"],
+      matches: ["topup", "top up", "ewallet", "e-wallet"],
+    },
+    {
+      keywords: ["grab", "gojek", "bensin", "parkir", "transport"],
+      matches: ["transport", "bensin", "parkir"],
+    },
+  ];
+
+  const group = keywordGroups.find((item) =>
+    item.keywords.some((keyword) => note.includes(keyword)),
+  );
+
+  if (!group) {
+    return null;
+  }
+
+  return (
+    candidates.find((category) => {
+      const haystack = `${category.name} ${category.group}`.toLowerCase();
+
+      return group.matches.some((match) => haystack.includes(match));
+    }) || null
+  );
 }
 
 function createEmptyForm(
@@ -188,25 +281,13 @@ function createEmptyForm(
   const transactionDate = todayInputValue();
   const defaultBudgetMonth = monthInputValue(new Date(transactionDate));
 
-  const defaultCategoryGroup = getDefaultCategoryGroup(
-    categories,
-    transactionType,
-  );
-  const lastCategoryId =
-    transactionType === TransactionType.EXPENSE
-      ? preferences?.lastExpenseCategoryId
-      : preferences?.lastCategoryId;
-  const lastCategory = lastCategoryId
-    ? categories.find((c) => c.id === lastCategoryId)
-    : null;
-
   return {
     type: transactionType,
     amount: "",
     walletId: defaultWallet?.id || "",
     transferToWalletId: "",
-    categoryGroup: lastCategory?.group || defaultCategoryGroup,
-    categoryId: lastCategory?.id || "",
+    categoryGroup: "",
+    categoryId: "",
     budgetCategoryId: "",
     description: "",
     transactionDate,
@@ -219,6 +300,24 @@ function createEmptyForm(
     transferFeeEnabled: false,
     transferFeeMethod: "",
     transferFeeAmount: "",
+  };
+}
+
+function createEmptyQuickAddForm(
+  wallets: WalletOption[],
+  preferences?: {
+    lastWalletId?: string;
+  },
+): QuickAddFormState {
+  const defaultWallet = preferences?.lastWalletId
+    ? wallets.find((wallet) => wallet.id === preferences.lastWalletId)
+    : wallets.find((wallet) => wallet.isDefault) || wallets[0];
+
+  return {
+    type: TransactionType.EXPENSE,
+    amount: "",
+    walletId: defaultWallet?.id || "",
+    note: "",
   };
 }
 
@@ -281,8 +380,9 @@ function toPayload(form: TransactionFormState) {
     description: form.description,
     transactionDate: form.transactionDate,
     budgetMonth:
-      form.type === TransactionType.TRANSFER ||
-      (form.type === TransactionType.INCOME && !form.allocateToBudget)
+      form.type === TransactionType.TRANSFER && !form.transferFeeEnabled
+        ? null
+        : form.type === TransactionType.INCOME && !form.allocateToBudget
         ? null
         : form.budgetMonth,
     allocateToBudget: form.allocateToBudget,
@@ -308,12 +408,14 @@ function getSignedAmount(transaction: TransactionView) {
 
 export function TransactionsClient({
   initialTransactions,
+  initialPendingTransactions,
   pagination,
   wallets,
   categories,
   budgetCategories,
 }: {
   initialTransactions: TransactionView[];
+  initialPendingTransactions: TransactionView[];
   pagination: TransactionPagination;
   wallets: WalletOption[];
   categories: CategoryOption[];
@@ -330,8 +432,14 @@ export function TransactionsClient({
     saveExpenseCategoryPreference,
   } = useTransactionPreferences();
   const [transactions, setTransactions] = useState(initialTransactions);
+  const [pendingTransactions, setPendingTransactions] = useState(
+    initialPendingTransactions,
+  );
   const [createForm, setCreateForm] = useState(() =>
     createEmptyForm(wallets, categories, isLoaded ? preferences : undefined),
+  );
+  const [quickAddForm, setQuickAddForm] = useState(() =>
+    createEmptyQuickAddForm(wallets, isLoaded ? preferences : undefined),
   );
   const [editTransactionId, setEditTransactionId] = useState<string | null>(
     null,
@@ -341,7 +449,6 @@ export function TransactionsClient({
   );
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isCreateTypePickerOpen, setIsCreateTypePickerOpen] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
   const [isMobilePaginationVisible, setIsMobilePaginationVisible] =
@@ -455,27 +562,67 @@ export function TransactionsClient({
     updateHistoryParams({ page: 1, query: searchDraft });
   };
 
-  const openCreateDialogForType = (type: TransactionType) => {
-    const baseForm = createEmptyForm(wallets, categories, preferences);
+  const submitQuickAdd = async (force = false) => {
+    setError(null);
+    setIsSubmitting(true);
 
-    setCreateForm({
-      ...baseForm,
-      type,
-      categoryGroup: getDefaultCategoryGroup(categories, type),
-      categoryId: "",
-      budgetCategoryId: "",
-      transferToWalletId: "",
-      isUnbudgetedExpense: false,
-      allocateToBudget: true,
-      allocateSavings: false,
-      savingsAmount: "",
-      savingsNote: "",
-      transferFeeEnabled: false,
-      transferFeeMethod: "",
-      transferFeeAmount: "",
-    });
-    setIsCreateTypePickerOpen(false);
-    setIsCreateDialogOpen(true);
+    const toastId = toast.loading("Menyimpan catatan cepat...");
+
+    try {
+      const response = await fetch("/api/quick-add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: quickAddForm.type,
+          amount: quickAddForm.amount,
+          walletId: quickAddForm.walletId,
+          note: quickAddForm.note || null,
+          force,
+        }),
+      });
+      const data = (await response.json()) as {
+        success?: boolean;
+        code?: string;
+        message?: string;
+      };
+
+      if (response.status === 409 && data.code === "possible_duplicate") {
+        const shouldSave = window.confirm(
+          `${data.message || "Ada transaksi mirip beberapa menit lalu."}\n\nTetap simpan?`,
+        );
+
+        toast.dismiss(toastId);
+
+        if (shouldSave) {
+          await submitQuickAdd(true);
+        }
+
+        return;
+      }
+
+      if (!response.ok || !data.success) {
+        const errorMsg = data.message || "Catat cepat gagal disimpan.";
+        setError(errorMsg);
+        toast.error(errorMsg, { id: toastId });
+        return;
+      }
+
+      saveWalletPreference(quickAddForm.walletId);
+      setQuickAddForm(createEmptyQuickAddForm(wallets, preferences));
+      toast.success("Catatan cepat tersimpan", { id: toastId });
+      router.refresh();
+    } catch {
+      const errorMsg = "Catat cepat gagal disimpan. Coba lagi.";
+      setError(errorMsg);
+      toast.error(errorMsg, { id: toastId });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleQuickAdd = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await submitQuickAdd();
   };
 
   const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
@@ -581,6 +728,9 @@ export function TransactionsClient({
             : transaction,
         ),
       );
+      setPendingTransactions((current) =>
+        current.filter((transaction) => transaction.id !== data.transaction!.id),
+      );
 
       toast.success("Transaction saved", { id: toastId });
     } catch {
@@ -614,11 +764,76 @@ export function TransactionsClient({
       setTransactions((current) =>
         current.filter((transaction) => transaction.id !== transactionId),
       );
+      setPendingTransactions((current) =>
+        current.filter((transaction) => transaction.id !== transactionId),
+      );
       setTotalCount((current) => Math.max(0, current - 1));
 
       toast.success("Transaction deleted", { id: toastId });
     } catch {
       const errorMsg = "Failed to delete transaction. Please try again.";
+      setError(errorMsg);
+      toast.error(errorMsg, { id: toastId });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const completePendingWithCategory = async (
+    transaction: TransactionView,
+    category: CategoryOption,
+  ) => {
+    const budgetMonth =
+      transaction.budgetMonth?.slice(0, 7) ||
+      transaction.transactionDate.slice(0, 7);
+    const budgetCategoryId =
+      transaction.type === TransactionType.EXPENSE
+        ? findMatchingBudgetCategoryId(budgetCategories, category, budgetMonth)
+        : "";
+    const form = transactionToForm(transaction, categories, budgetCategories);
+    const nextForm: TransactionFormState = {
+      ...form,
+      categoryGroup: category.group,
+      categoryId: category.id,
+      budgetCategoryId,
+      isUnbudgetedExpense:
+        transaction.type === TransactionType.EXPENSE && !budgetCategoryId,
+      budgetMonth,
+    };
+    const toastId = toast.loading("Melengkapi transaksi...");
+
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/transactions/${transaction.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(toPayload(nextForm)),
+      });
+      const data = (await response.json()) as {
+        transaction?: TransactionView;
+        error?: string;
+      };
+
+      if (!response.ok || !data.transaction) {
+        const errorMsg = data.error || "Transaksi belum bisa dilengkapi.";
+        setError(errorMsg);
+        toast.error(errorMsg, { id: toastId });
+        return;
+      }
+
+      setPendingTransactions((current) =>
+        current.filter((item) => item.id !== transaction.id),
+      );
+      setTransactions((current) =>
+        current.map((item) =>
+          item.id === transaction.id ? data.transaction! : item,
+        ),
+      );
+      toast.success("Transaksi sudah lengkap", { id: toastId });
+    } catch {
+      const errorMsg = "Transaksi belum bisa dilengkapi. Coba lagi.";
       setError(errorMsg);
       toast.error(errorMsg, { id: toastId });
     } finally {
@@ -638,6 +853,22 @@ export function TransactionsClient({
               {error}
             </p>
           ) : null}
+
+          <QuickAddPanel
+            form={quickAddForm}
+            wallets={wallets}
+            isSubmitting={isSubmitting}
+            onChange={setQuickAddForm}
+            onSubmit={handleQuickAdd}
+          />
+
+          <PendingTransactionsInbox
+            transactions={pendingTransactions}
+            categories={categories}
+            isSubmitting={isSubmitting}
+            onEdit={startEdit}
+            onQuickComplete={completePendingWithCategory}
+          />
 
           <div className="rounded-lg bg-white p-3 shadow-sm sm:p-4">
             <div
@@ -838,7 +1069,10 @@ export function TransactionsClient({
 
       <button
         type="button"
-        onClick={() => setIsCreateTypePickerOpen(true)}
+        onClick={() => {
+          setCreateForm(createEmptyForm(wallets, categories, preferences));
+          setIsCreateDialogOpen(true);
+        }}
         aria-label="Tambah transaksi"
         title="Tambah transaksi"
         className="fixed bottom-36 right-4 z-50 flex h-11 w-11 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 active:scale-95 lg:hidden"
@@ -893,67 +1127,6 @@ export function TransactionsClient({
           </button>
         </div>
       </div>
-
-      {isCreateTypePickerOpen ? (
-        <div
-          className="fixed inset-0 z-[60] flex items-end justify-center bg-zinc-950/45 p-3 lg:hidden"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="transaction-type-dialog-title"
-          onClick={() => setIsCreateTypePickerOpen(false)}
-        >
-          <div
-            className="w-full max-w-lg rounded-2xl bg-white p-4 shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between gap-3 border-b border-zinc-100 pb-3">
-              <h2
-                id="transaction-type-dialog-title"
-                className="text-base font-semibold text-zinc-950"
-              >
-                Add Transaction
-              </h2>
-              <button
-                type="button"
-                onClick={() => setIsCreateTypePickerOpen(false)}
-                aria-label="Tutup pilihan transaksi"
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600"
-              >
-                <span className="text-xl leading-none" aria-hidden="true">
-                  X
-                </span>
-              </button>
-            </div>
-
-            <div className="mt-4 grid gap-2">
-              {transactionTypeOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => openCreateDialogForType(option.value)}
-                  className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-4 py-3 text-left transition hover:bg-zinc-50 active:scale-[0.99]"
-                >
-                  <span>
-                    <span className="block text-sm font-semibold text-zinc-950">
-                      {option.label}
-                    </span>
-                    <span className="mt-1 block text-xs text-zinc-500">
-                      {option.value === TransactionType.EXPENSE
-                        ? "Catat pengeluaran dan envelope"
-                        : option.value === TransactionType.INCOME
-                          ? "Catat pemasukan dan savings"
-                          : "Pindah saldo antar wallet"}
-                    </span>
-                  </span>
-                  <span className="text-lg font-semibold text-zinc-400">
-                    &gt;
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {isCreateDialogOpen ? (
         <div
@@ -1103,6 +1276,193 @@ export function TransactionsClient({
   );
 }
 
+function QuickAddPanel({
+  form,
+  wallets,
+  isSubmitting,
+  onChange,
+  onSubmit,
+}: {
+  form: QuickAddFormState;
+  wallets: WalletOption[];
+  isSubmitting: boolean;
+  onChange: (value: QuickAddFormState) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <form
+      onSubmit={onSubmit}
+      className="rounded-lg border border-blue-100 bg-blue-50/70 p-3 shadow-sm sm:p-4"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-zinc-950">Catat Cepat</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-[150px_minmax(0,1fr)_150px]">
+            <input
+              value={form.amount}
+              onChange={(event) =>
+                onChange({
+                  ...form,
+                  amount: normalizeAmountInput(event.target.value),
+                })
+              }
+              placeholder="25.000"
+              inputMode="numeric"
+              className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-950 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              required
+            />
+            <select
+              value={form.walletId}
+              onChange={(event) =>
+                onChange({ ...form, walletId: event.target.value })
+              }
+              className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm text-zinc-950 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              required
+            >
+              <option value="">Wallet</option>
+              {wallets.map((wallet) => (
+                <option key={wallet.id} value={wallet.id}>
+                  {wallet.name}
+                </option>
+              ))}
+            </select>
+            <div className="grid grid-cols-2 rounded-lg bg-white p-1 ring-1 ring-blue-200">
+              {[TransactionType.EXPENSE, TransactionType.INCOME].map((type) => {
+                const isActive = form.type === type;
+
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => onChange({ ...form, type })}
+                    className={
+                      isActive
+                        ? "rounded-md bg-zinc-950 px-2 py-1.5 text-xs font-semibold text-white"
+                        : "rounded-md px-2 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-100"
+                    }
+                  >
+                    {type === TransactionType.EXPENSE ? "Expense" : "Income"}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <input
+            value={form.note}
+            onChange={(event) =>
+              onChange({ ...form, note: event.target.value })
+            }
+            placeholder="Beli apa? opsional"
+            maxLength={120}
+            className="mt-2 w-full rounded-lg border border-blue-100 bg-white px-3 py-2 text-sm text-zinc-950 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={isSubmitting || wallets.length === 0}
+          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Simpan
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function PendingTransactionsInbox({
+  transactions,
+  categories,
+  isSubmitting,
+  onEdit,
+  onQuickComplete,
+}: {
+  transactions: TransactionView[];
+  categories: CategoryOption[];
+  isSubmitting: boolean;
+  onEdit: (transaction: TransactionView) => void;
+  onQuickComplete: (
+    transaction: TransactionView,
+    category: CategoryOption,
+  ) => void;
+}) {
+  if (transactions.length === 0) {
+    return (
+      <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-800 shadow-sm sm:px-4">
+        Semua transaksi sudah rapi.
+      </div>
+    );
+  }
+
+  return (
+    <section className="rounded-lg border border-amber-100 bg-white p-3 shadow-sm sm:p-4">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-zinc-950">
+            Transaksi Belum Lengkap
+          </h2>
+          <p className="text-xs text-zinc-500">
+            Lengkapi agar budget dan laporan makin akurat.
+          </p>
+        </div>
+        <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+          {transactions.length} pending
+        </span>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {transactions.map((transaction) => {
+          const quickCategories = categories
+            .filter((category) => category.type === transaction.type)
+            .slice(0, 5);
+
+          return (
+            <div
+              key={transaction.id}
+              className="rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-3"
+            >
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-zinc-950">
+                    <SensitiveAmount>
+                      {formatRupiah(transaction.amount)}
+                    </SensitiveAmount>{" "}
+                    <span className="font-medium text-zinc-500">
+                      - {transaction.walletName}
+                    </span>
+                  </p>
+                  <p className="mt-1 truncate text-xs text-zinc-500">
+                    {formatDisplayTitle(transaction.description)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onEdit(transaction)}
+                  className="self-start rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                >
+                  Edit
+                </button>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {quickCategories.map((category) => (
+                  <button
+                    key={category.id}
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => onQuickComplete(transaction, category)}
+                    className="rounded-full border border-amber-200 bg-white px-2.5 py-1 text-xs font-medium text-amber-800 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {category.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function PlusIcon() {
   return (
     <svg
@@ -1153,6 +1513,9 @@ function TransactionRow({
 }) {
   const signedAmount = getSignedAmount(transaction);
   const isTransfer = transaction.type === TransactionType.TRANSFER;
+  const isPendingDetail =
+    transaction.detailStatus === TransactionDetailStatus.PENDING_DETAIL ||
+    transaction.needsReview;
   const amountClass =
     signedAmount > 0
       ? "text-base font-bold text-emerald-700 sm:text-xl"
@@ -1188,6 +1551,11 @@ function TransactionRow({
               Paid Early
             </span>
           ) : null}
+          {isPendingDetail ? (
+            <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">
+              Pending Detail
+            </span>
+          ) : null}
           {transaction.isUnbudgetedExpense ? (
             <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">
               Unbudgeted Expense
@@ -1204,6 +1572,11 @@ function TransactionRow({
               Paid Early
             </span>
           ) : null}
+          {isPendingDetail ? (
+            <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+              Pending
+            </span>
+          ) : null}
           {transaction.isUnbudgetedExpense ? (
             <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
               Unbudgeted
@@ -1218,7 +1591,7 @@ function TransactionRow({
         <p className="mt-1 truncate text-[11px] text-zinc-500 sm:text-sm">
           {isTransfer
             ? `${transaction.walletName} -> ${transaction.transferToWalletName}`
-            : `${transaction.walletName} - ${transaction.categoryName}${
+            : `${transaction.walletName} - ${transaction.categoryName || "Belum ada kategori"}${
                 transaction.budgetCategoryName
                   ? ` - ${transaction.budgetCategoryName}`
                   : ""
@@ -1308,6 +1681,7 @@ function TransactionForm({
   stickyActions?: boolean;
 }) {
   const [isAmountCalculatorOpen, setIsAmountCalculatorOpen] = useState(false);
+  const isCreateMode = !originalTransaction;
   const selectableCategories = categories.filter(
     (category) => category.type === form.type,
   );
@@ -1337,12 +1711,7 @@ function TransactionForm({
   const selectedTransferFeeOption = transferFeeOptions.find(
     (option) => option.value === form.transferFeeMethod,
   );
-  const budgetImpactAmount = isTransfer
-    ? parsedTransferFeeAmount
-    : parsedAmount +
-      (isTransferOutExpense && form.transferFeeEnabled
-        ? parsedTransferFeeAmount
-        : 0);
+  const budgetImpactAmount = isTransfer ? 0 : parsedAmount;
   const unbudgetedImpactAmount =
     parsedAmount +
     (isTransferOutExpense && form.transferFeeEnabled
@@ -1369,6 +1738,79 @@ function TransactionForm({
     currentCategoryRemaining === null
       ? null
       : currentCategoryRemaining - budgetImpactAmount;
+  const selectedBudgetCategoryName =
+    availableBudgetCategories.find(
+      (category) => category.id === form.budgetCategoryId,
+    )?.name || "";
+
+  const changeType = (type: TransactionType) => {
+    const budgetMonth = form.transactionDate.slice(0, 7);
+
+    onChange({
+      ...form,
+      type,
+      categoryGroup: "",
+      categoryId: "",
+      budgetCategoryId: "",
+      budgetMonth,
+      transferToWalletId: "",
+      isUnbudgetedExpense: false,
+      allocateToBudget: true,
+      allocateSavings: false,
+      savingsAmount: "",
+      savingsNote: "",
+      transferFeeEnabled: false,
+      transferFeeMethod: "",
+      transferFeeAmount: "",
+    });
+  };
+
+  const selectCategory = (categoryId: string) => {
+    const category = selectableCategories.find((item) => item.id === categoryId);
+    const budgetCategoryId = findMatchingBudgetCategoryId(
+      budgetCategories,
+      category,
+      form.budgetMonth,
+    );
+
+    onChange({
+      ...form,
+      categoryId,
+      categoryGroup: category?.group || form.categoryGroup,
+      budgetCategoryId,
+      transferFeeEnabled:
+        category?.key === "transfer_out" ? form.transferFeeEnabled : false,
+      transferFeeMethod:
+        category?.key === "transfer_out" ? form.transferFeeMethod : "",
+      transferFeeAmount:
+        category?.key === "transfer_out" ? form.transferFeeAmount : "",
+    });
+  };
+
+  const updateDescription = (description: string) => {
+    const inferredCategory = inferCategoryFromDescription(
+      description,
+      categories,
+      form.type,
+    );
+
+    if (!inferredCategory || form.categoryId) {
+      onChange({ ...form, description });
+      return;
+    }
+
+    onChange({
+      ...form,
+      description,
+      categoryGroup: inferredCategory.group,
+      categoryId: inferredCategory.id,
+      budgetCategoryId: findMatchingBudgetCategoryId(
+        budgetCategories,
+        inferredCategory,
+        form.budgetMonth,
+      ),
+    });
+  };
 
   return (
     <form
@@ -1386,41 +1828,29 @@ function TransactionForm({
             : "space-y-3 sm:space-y-4"
         }
       >
-        <div>
-          <label className="mb-2 block text-sm font-medium text-zinc-700">
-            Type
-          </label>
-          <select
-            value={form.type}
-            onChange={(event) =>
-              onChange({
-                ...form,
-                type: event.target.value as TransactionType,
-                categoryGroup: getDefaultCategoryGroup(
-                  categories,
-                  event.target.value as TransactionType,
-                ),
-                categoryId: "",
-                budgetCategoryId: "",
-                transferToWalletId: "",
-                isUnbudgetedExpense: false,
-                allocateToBudget: true,
-                allocateSavings: false,
-                savingsAmount: "",
-                savingsNote: "",
-                transferFeeEnabled: false,
-                transferFeeMethod: "",
-                transferFeeAmount: "",
-              })
-            }
-            className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-          >
-            {transactionTypeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
+        <div
+          className="grid grid-cols-3 gap-1 rounded-lg bg-zinc-100 p-1"
+          aria-label="Transaction type"
+        >
+          {transactionTypeOptions.map((option) => {
+            const isActive = form.type === option.value;
+
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => changeType(option.value)}
+                className={
+                  isActive
+                    ? "rounded-md bg-white px-2 py-2 text-xs font-semibold text-zinc-950 shadow-sm sm:text-sm"
+                    : "rounded-md px-2 py-2 text-xs font-medium text-zinc-500 transition hover:bg-white/70 hover:text-zinc-800 sm:text-sm"
+                }
+                disabled={isActive}
+              >
                 {option.label}
-              </option>
-            ))}
-          </select>
+              </button>
+            );
+          })}
         </div>
 
         <div>
@@ -1430,11 +1860,15 @@ function TransactionForm({
           <div className="flex gap-2">
             <input
               value={form.amount}
-              onClick={() => setIsAmountCalculatorOpen(true)}
-              readOnly
-              inputMode="none"
-              className="w-full cursor-pointer rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-              placeholder="Tap untuk hitung amount"
+              onChange={(event) =>
+                onChange({
+                  ...form,
+                  amount: normalizeAmountInput(event.target.value),
+                })
+              }
+              inputMode="numeric"
+              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              placeholder="0"
               required
             />
             <button
@@ -1445,9 +1879,33 @@ function TransactionForm({
               Hitung
             </button>
           </div>
-          <p className="mt-2 text-xs text-zinc-500">
-            Jumlahkan beberapa barang langsung di sini.
-          </p>
+          <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+            {amountPresetOptions.map((amount) => (
+              <button
+                key={amount}
+                type="button"
+                onClick={() =>
+                  onChange({ ...form, amount: formatAmountInput(amount) })
+                }
+                className="shrink-0 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-600 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+              >
+                {formatRupiah(amount)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="mb-2 block text-sm font-medium text-zinc-700">
+            Beli apa? <span className="font-normal text-zinc-400">(opsional)</span>
+          </label>
+          <input
+            value={form.description}
+            onChange={(event) => updateDescription(event.target.value)}
+            className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            placeholder="Contoh: makan siang, top up gopay, bayar kost"
+            maxLength={120}
+          />
         </div>
 
         {isAmountCalculatorOpen ? (
@@ -1619,7 +2077,7 @@ function TransactionForm({
           <>
             <div>
               <label className="mb-2 block text-sm font-medium text-zinc-700">
-                Group Kategori
+                Kategori
               </label>
               <select
                 value={form.categoryGroup}
@@ -1628,13 +2086,14 @@ function TransactionForm({
                     ...form,
                     categoryGroup: event.target.value,
                     categoryId: "",
+                    budgetCategoryId: "",
                   })
                 }
                 className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                 required
                 disabled={categoryGroups.length === 0}
               >
-                <option value="">Select group</option>
+                <option value="">Pilih kategori</option>
                 {categoryGroups.map((group) => (
                   <option key={group} value={group}>
                     {group}
@@ -1643,47 +2102,53 @@ function TransactionForm({
               </select>
             </div>
 
-            <div>
+            {form.categoryGroup ? (
+              <div>
               <label className="mb-2 block text-sm font-medium text-zinc-700">
                 Sub Kategori
               </label>
               <select
                 value={form.categoryId}
-                onChange={(event) => {
-                  const category = selectableCategories.find(
-                    (item) => item.id === event.target.value,
-                  );
-
-                  onChange({
-                    ...form,
-                    categoryId: event.target.value,
-                    categoryGroup: category?.group || form.categoryGroup,
-                    transferFeeEnabled:
-                      category?.key === "transfer_out"
-                        ? form.transferFeeEnabled
-                        : false,
-                    transferFeeMethod:
-                      category?.key === "transfer_out"
-                        ? form.transferFeeMethod
-                        : "",
-                    transferFeeAmount:
-                      category?.key === "transfer_out"
-                        ? form.transferFeeAmount
-                        : "",
-                  });
-                }}
+                onChange={(event) => selectCategory(event.target.value)}
                 className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                 required
-                disabled={!form.categoryGroup}
               >
-                <option value="">Select sub category</option>
+                <option value="">Pilih sub kategori</option>
                 {selectedGroupCategories.map((category) => (
                   <option key={category.id} value={category.id}>
                     {category.name}
                   </option>
                 ))}
               </select>
+              {form.type === TransactionType.EXPENSE ? (
+                <div className="mt-2 space-y-1.5">
+                  <label className="inline-flex items-center gap-2 text-xs font-medium text-zinc-600">
+                    <input
+                      type="checkbox"
+                      checked={form.isUnbudgetedExpense}
+                      onChange={(event) =>
+                        onChange({
+                          ...form,
+                          isUnbudgetedExpense: event.target.checked,
+                          budgetCategoryId: event.target.checked
+                            ? ""
+                            : form.budgetCategoryId,
+                        })
+                      }
+                      className="h-3.5 w-3.5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    Tidak masuk budget
+                  </label>
+                  {form.isUnbudgetedExpense ? (
+                    <p className="pl-5 text-xs text-zinc-500">
+                      Dipakai untuk pengeluaran dadakan seperti tilang, ban
+                      bocor, dll.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
+            ) : null}
           </>
         )}
 
@@ -1753,11 +2218,11 @@ function TransactionForm({
                     required
                   />
                 </div>
-                {isTransfer ? (
+                {isTransfer && !isCreateMode ? (
                   <>
                     <div>
                       <label className="mb-2 block text-sm font-medium text-zinc-700">
-                        Admin Fee Budget Period
+                        Admin Fee Period
                       </label>
                       <input
                         type="month"
@@ -1766,74 +2231,25 @@ function TransactionForm({
                           onChange({
                             ...form,
                             budgetMonth: event.target.value,
-                            budgetCategoryId: getBudgetCategoryIdForMonth(
-                              budgetCategories,
-                              form.budgetCategoryId,
-                              event.target.value,
-                            ),
                           })
                         }
                         className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                         required
                       />
                     </div>
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-zinc-700">
-                        Admin Fee Budget Category
-                      </label>
-                      <select
-                        value={form.budgetCategoryId}
-                        onChange={(event) =>
-                          onChange({
-                            ...form,
-                            budgetCategoryId: event.target.value,
-                          })
-                        }
-                        className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                        required
-                      >
-                        <option value="">
-                          {availableBudgetCategories.length === 0
-                            ? "No assigned budget category for this period"
-                            : "Select budget category"}
-                        </option>
-                        {availableBudgetCategories.map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name}
-                          </option>
-                        ))}
-                      </select>
-                      {selectedBudgetAllocation &&
-                      currentCategoryRemaining !== null &&
-                      categoryRemainingAfterSave !== null ? (
-                        <div className="mt-3 rounded-lg bg-white px-3 py-3 text-xs text-zinc-600 ring-1 ring-zinc-200">
-                          <p>
-                            Current remaining:{" "}
-                            {formatRupiah(currentCategoryRemaining)}
-                          </p>
-                          {categoryRemainingAfterSave < 0 ? (
-                            <p className="mt-2 font-semibold text-red-700">
-                              Fee will overspend by:{" "}
-                              {formatRupiah(
-                                Math.abs(categoryRemainingAfterSave),
-                              )}
-                            </p>
-                          ) : (
-                            <p className="mt-2 font-semibold text-emerald-700">
-                              Remaining after fee:{" "}
-                              {formatRupiah(categoryRemainingAfterSave)}
-                            </p>
-                          )}
-                        </div>
-                      ) : null}
-                    </div>
                   </>
                 ) : (
                   <p className="rounded-lg bg-white px-3 py-2 text-xs text-zinc-600 ring-1 ring-zinc-200">
-                    Biaya admin mengikuti budget period dan budget category
-                    transaksi Transfer Keluar.
+                    Biaya admin dicatat sebagai kategori Biaya Admin terpisah.
+                    Nominal ini tidak memotong envelope Transfer Keluar.
                   </p>
                 )}
+                <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-800 ring-1 ring-blue-100">
+                  Biaya admin masuk sebagai unbudgeted expense terpisah untuk
+                  periode {formatBudgetPeriod(form.budgetMonth)}. Di akhir
+                  bulan bisa direkap lalu ditutup dari sisa budget yang user
+                  pilih.
+                </p>
               </div>
             ) : null}
           </div>
@@ -1849,15 +2265,11 @@ function TransactionForm({
             onChange={(event) => {
               const nextTransactionDate = event.target.value;
               const nextTransactionMonth = nextTransactionDate.slice(0, 7);
-
-              // If budgetMonth was in sync with previous transaction month, keep them in sync
-              const prevTransactionMonth = form.transactionDate.slice(0, 7);
-              const budgetMonthWasSynced =
-                form.budgetMonth === prevTransactionMonth;
-
-              const nextBudgetMonth = budgetMonthWasSynced
+              const nextBudgetMonth = isCreateMode
                 ? nextTransactionMonth
-                : form.budgetMonth;
+                : form.budgetMonth === form.transactionDate.slice(0, 7)
+                  ? nextTransactionMonth
+                  : form.budgetMonth;
 
               onChange({
                 ...form,
@@ -1875,8 +2287,9 @@ function TransactionForm({
           />
         </div>
 
-        {form.type === TransactionType.EXPENSE ||
-        (form.type === TransactionType.INCOME && form.allocateToBudget) ? (
+        {!isCreateMode &&
+        (form.type === TransactionType.EXPENSE ||
+          (form.type === TransactionType.INCOME && form.allocateToBudget)) ? (
           <div>
             <label className="mb-2 block text-sm font-medium text-zinc-700">
               {form.type === TransactionType.EXPENSE && form.isUnbudgetedExpense
@@ -1920,61 +2333,38 @@ function TransactionForm({
           </div>
         ) : null}
 
-        {form.type === TransactionType.EXPENSE ? (
-          <div>
-            <label className="mb-2 block text-sm font-medium text-zinc-700">
-              Expense Allocation
-            </label>
-            <label className="flex items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-700">
-              <input
-                type="checkbox"
-                checked={form.isUnbudgetedExpense}
-                onChange={(event) =>
-                  onChange({
-                    ...form,
-                    isUnbudgetedExpense: event.target.checked,
-                    budgetCategoryId: event.target.checked
-                      ? ""
-                      : form.budgetCategoryId,
-                  })
-                }
-                className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
-              />
-              <span>
-                <span className="block font-medium">Unbudgeted Expense</span>
-                <span className="mt-1 block text-xs text-zinc-500">
-                  Untuk pengeluaran tidak direncanakan seperti tilang atau ban
-                  bocor. Saldo wallet berkurang, tetapi tidak memotong envelope.
-                </span>
-              </span>
-            </label>
-          </div>
-        ) : null}
-
         {form.type === TransactionType.EXPENSE && !form.isUnbudgetedExpense ? (
           <div>
-            <label className="mb-2 block text-sm font-medium text-zinc-700">
-              Budget Category
-            </label>
-            <select
-              value={form.budgetCategoryId}
-              onChange={(event) =>
-                onChange({ ...form, budgetCategoryId: event.target.value })
-              }
-              className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-              required
-            >
-              <option value="">
-                {availableBudgetCategories.length === 0
-                  ? "No assigned budget category for this month"
-                  : "No budget category"}
-              </option>
-              {availableBudgetCategories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
+            {selectedBudgetCategoryName ? (
+              <p className="rounded-lg bg-zinc-50 px-3 py-2 text-xs font-medium text-zinc-600 ring-1 ring-zinc-200">
+                Budget: {selectedBudgetCategoryName}
+              </p>
+            ) : (
+              <>
+                <label className="mb-2 block text-sm font-medium text-zinc-700">
+                  Budget
+                </label>
+                <select
+                  value={form.budgetCategoryId}
+                  onChange={(event) =>
+                    onChange({ ...form, budgetCategoryId: event.target.value })
+                  }
+                  className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                  required
+                >
+                  <option value="">
+                    {availableBudgetCategories.length === 0
+                      ? "Belum ada budget untuk bulan ini"
+                      : "Pilih budget"}
+                  </option>
+                  {availableBudgetCategories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
             {selectedBudgetAllocation &&
             currentCategoryRemaining !== null &&
             categoryRemainingAfterSave !== null ? (
@@ -2054,26 +2444,12 @@ function TransactionForm({
                 ? "Transfer dicatat sebagai perpindahan saldo."
                 : "Transfer keluar dicatat sebagai expense utama."}{" "}
               Biaya admin {selectedTransferFeeOption?.label || "transfer"}{" "}
-              sebesar {formatRupiah(parsedTransferFeeAmount)} mengikuti budget
-              period dan allocation transaksi ini.
+              sebesar {formatRupiah(parsedTransferFeeAmount)} dicatat terpisah
+              sebagai Biaya Admin unbudgeted.
             </p>
           </div>
         ) : null}
 
-        <div>
-          <label className="mb-2 block text-sm font-medium text-zinc-700">
-            Note
-          </label>
-          <input
-            value={form.description}
-            onChange={(event) =>
-              onChange({ ...form, description: event.target.value })
-            }
-            className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-            placeholder="Lunch, salary, top up"
-            maxLength={120}
-          />
-        </div>
       </div>
 
       <div

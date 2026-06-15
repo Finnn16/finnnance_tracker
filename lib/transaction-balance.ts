@@ -1,4 +1,11 @@
-import { TransactionType } from "@/lib/prisma-enums";
+import {
+  calculateTransactionWalletMovements,
+} from "@finnnance/core";
+
+export type {
+  TransactionBalanceEffect,
+  WalletBalanceMovement,
+} from "@finnnance/core";
 
 type WalletBalanceClient = {
   wallet: {
@@ -9,43 +16,17 @@ type WalletBalanceClient = {
   };
 };
 
-export type TransactionBalanceEffect = {
-  type: TransactionType;
-  amount: number;
-  walletId: string;
-  transferToWalletId: string | null;
-};
-
 export async function applyTransactionBalanceEffect(
   tx: WalletBalanceClient,
-  effect: TransactionBalanceEffect,
+  effect: import("@finnnance/core").TransactionBalanceEffect,
   direction: 1 | -1,
 ) {
-  if (effect.type === TransactionType.INCOME) {
-    await tx.wallet.update({
-      where: { id: effect.walletId },
-      data: { currentBalance: { increment: effect.amount * direction } },
-    });
-    return;
-  }
+  const movements = calculateTransactionWalletMovements(effect, direction);
 
-  if (effect.type === TransactionType.EXPENSE) {
+  for (const movement of movements) {
     await tx.wallet.update({
-      where: { id: effect.walletId },
-      data: { currentBalance: { increment: -effect.amount * direction } },
-    });
-    return;
-  }
-
-  await tx.wallet.update({
-    where: { id: effect.walletId },
-    data: { currentBalance: { increment: -effect.amount * direction } },
-  });
-
-  if (effect.transferToWalletId) {
-    await tx.wallet.update({
-      where: { id: effect.transferToWalletId },
-      data: { currentBalance: { increment: effect.amount * direction } },
+      where: { id: movement.walletId },
+      data: { currentBalance: { increment: movement.increment } },
     });
   }
 }

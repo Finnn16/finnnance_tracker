@@ -104,16 +104,17 @@ export async function GET() {
     (ledger) => ledger.type === SavingLedgerType.ADJUSTMENT,
   );
 
+  const operationalBalance = Math.max(
+    wallets.reduce((total, wallet) => total + wallet.currentBalance, 0) -
+      currentBalance,
+    0,
+  );
+
   return NextResponse.json({
     summary: {
       currentBalance,
-      availableToSpend:
-        wallets.reduce((total, wallet) => total + wallet.currentBalance, 0) -
-        currentBalance,
-      totalWalletBalance: wallets.reduce(
-        (total, wallet) => total + wallet.currentBalance,
-        0,
-      ),
+      availableToSpend: operationalBalance,
+      totalWalletBalance: operationalBalance,
       addedThisMonth,
       usedThisMonth,
       adjustmentThisMonth,

@@ -17,14 +17,28 @@ type AiInsightRequest = {
   };
   budget?: {
     budgetableIncome?: number;
+    readyToBudget?: number;
     availableToBudget?: number;
     totalBudget?: number;
     spent?: number;
     unbudgetedSpent?: number;
-    fundingShortfall?: number;
+    remainingActiveBudget?: number;
+    budgetPlanGap?: number;
+    budgetPlanStatus?: string;
     remaining?: number;
-    status?: string;
     usedPercentage?: number;
+    incomeReceivedBeforePeriod?: number;
+    incomeReceivedBeforePeriodDate?: string | null;
+  };
+  coverage?: {
+    totalWalletBalance?: number;
+    reservedSavings?: number;
+    remainingActiveBudget?: number;
+    protectedMoney?: number;
+    freeCash?: number;
+    displayFreeCash?: number;
+    cashCoverageGap?: number;
+    cashCoverageStatus?: string;
   };
   topCategories?: Array<{
     name?: string;
@@ -48,12 +62,30 @@ type AiInsightResponse = {
 };
 
 function getGeminiModels() {
+  const defaults = [
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-2.5-flash",
+  ];
+
   return Array.from(
     new Set(
-      [env.geminiModel, ...env.geminiFallbackModels]
+      [env.geminiModel, ...env.geminiFallbackModels, ...defaults]
         .map((model) => model.trim())
         .filter(Boolean),
     ),
+  );
+}
+
+function isNonRetryableGeminiError(message: string) {
+  const normalized = message.toLowerCase();
+
+  return (
+    normalized.includes("api key not valid") ||
+    normalized.includes("permission denied") ||
+    normalized.includes("billing") ||
+    normalized.includes("location is not supported")
   );
 }
 
@@ -134,7 +166,8 @@ function buildPrompt(input: AiInsightRequest) {
     "You are a concise personal finance assistant for an internal two-user household tracker.",
     "Use only the provided numbers and avoid mentioning that you are an AI.",
     "Write in Indonesian.",
-    "Focus on salary-based monthly finance, budget health, and practical next actions.",
+    "Focus on free cash, budget plan, cash coverage, and practical next actions.",
+    "Differentiate budget plan from cash coverage. Do not call a cash coverage gap a budget problem.",
     'Return ONLY valid JSON with keys: "title", "message", "tone".',
     'tone must be one of: "positive", "warning", "neutral".',
     "title must be short, max 8 words.",
@@ -144,16 +177,24 @@ function buildPrompt(input: AiInsightRequest) {
     `Income: ${toCurrency(input.summary?.income)}`,
     `Expense: ${toCurrency(input.summary?.expense)}`,
     `Net cashflow: ${toCurrency(input.summary?.netCashflow)}`,
-    `Total balance: ${toCurrency(input.summary?.totalBalance)}`,
+    `Operational balance after locked savings: ${toCurrency(input.coverage?.totalWalletBalance ?? input.summary?.totalBalance)}`,
     `Transactions: ${input.summary?.transactionCount || 0}`,
-    `Budgetable income: ${toCurrency(input.budget?.budgetableIncome)}`,
-    `Available to budget: ${toCurrency(input.budget?.availableToBudget)}`,
+    `Free cash display: ${toCurrency(input.coverage?.displayFreeCash)}`,
+    `Free cash raw: ${toCurrency(input.coverage?.freeCash)}`,
+    `Reserved savings: ${toCurrency(input.coverage?.reservedSavings)}`,
+    `Remaining active budget: ${toCurrency(input.coverage?.remainingActiveBudget ?? input.budget?.remainingActiveBudget)}`,
+    `Protected active budget: ${toCurrency(input.coverage?.protectedMoney)}`,
+    `Cash coverage gap: ${toCurrency(input.coverage?.cashCoverageGap)}`,
+    `Cash coverage status: ${input.coverage?.cashCoverageStatus || "unknown"}`,
+    `Ready to budget: ${toCurrency(input.budget?.readyToBudget ?? input.budget?.budgetableIncome)}`,
     `Total budget set: ${toCurrency(input.budget?.totalBudget)}`,
     `Budgeted spent for period: ${toCurrency(input.budget?.spent)}`,
     `Unbudgeted expense for period: ${toCurrency(input.budget?.unbudgetedSpent)}`,
-    `Funding shortfall: ${toCurrency(input.budget?.fundingShortfall)}`,
+    `Budget period income received before calendar period: ${toCurrency(input.budget?.incomeReceivedBeforePeriod)}`,
+    `Budget period income early date: ${input.budget?.incomeReceivedBeforePeriodDate || "none"}`,
+    `Budget plan gap: ${toCurrency(input.budget?.budgetPlanGap)}`,
+    `Budget plan status: ${input.budget?.budgetPlanStatus || "unknown"}`,
     `Remaining budget: ${toCurrency(input.budget?.remaining)}`,
-    `Budget status: ${input.budget?.status || "unknown"}`,
     `Budget used: ${input.budget?.usedPercentage || 0}%`,
     `Top categories: ${topCategories || "none"}`,
     `Recent transactions: ${recentTransactions || "none"}`,
@@ -162,10 +203,30 @@ function buildPrompt(input: AiInsightRequest) {
 
 function buildFallbackInsight(input: AiInsightRequest): AiInsightResponse {
   const netCashflow = input.summary?.netCashflow || 0;
-  const budgetStatus = input.budget?.status || "SAFE";
+  const budgetPlanStatus = input.budget?.budgetPlanStatus || "SAFE";
+  const cashCoverageStatus = input.coverage?.cashCoverageStatus || "COVERED";
+  const cashCoverageGap = input.coverage?.cashCoverageGap || 0;
+  const earlyBudgetIncome = input.budget?.incomeReceivedBeforePeriod || 0;
   const topCategory = input.topCategories?.[0];
 
+  if (cashCoverageStatus === "GAP") {
+    return {
+      title: "Dana belum tertutup",
+      message: `Budget plan bisa saja aman, tapi ada ${toCurrency(cashCoverageGap)} sisa budget yang belum tertutup saldo operasional.`,
+      tone: "warning",
+    };
+  }
+
   if (netCashflow < 0) {
+    if (earlyBudgetIncome > 0) {
+      return {
+        title: "Cashflow kalender minus",
+        message:
+          "Budget period tetap bisa aman karena sebagian income periode ini diterima sebelum bulan kalender berjalan.",
+        tone: "neutral",
+      };
+    }
+
     return {
       title: "Cashflow perlu dijaga",
       message:
@@ -174,20 +235,11 @@ function buildFallbackInsight(input: AiInsightRequest): AiInsightResponse {
     };
   }
 
-  if (budgetStatus === "UNDERFUNDED") {
+  if (budgetPlanStatus === "OVERPLANNED") {
     return {
-      title: "Budget kekurangan dana",
+      title: "Budget overplanned",
       message:
-        "Ada budget atau savings aktif yang belum tertutup saldo wallet. Kurangi rencana atau tambahkan dana.",
-      tone: "warning",
-    };
-  }
-
-  if (budgetStatus === "OVERPLANNED") {
-    return {
-      title: "Budget mulai mepet",
-      message:
-        "Income masih aman, tapi budget bulan ini sudah melebihi batas. Cek envelope yang paling cepat habis.",
+        "Budget yang dibuat melebihi dana budget bulan ini. Kurangi envelope atau tambahkan income budgetable.",
       tone: "warning",
     };
   }
@@ -204,7 +256,7 @@ function buildFallbackInsight(input: AiInsightRequest): AiInsightResponse {
   return {
     title: "Kondisi stabil",
     message:
-      "Income, saldo, dan budget terlihat cukup seimbang untuk periode ini.",
+      "Uang bebas, budget plan, dan perlindungan dana terlihat seimbang untuk periode ini.",
     tone: "positive",
   };
 }
@@ -240,30 +292,34 @@ function buildGeminiPayload(input: AiInsightRequest) {
 }
 
 async function requestGeminiInsight(input: AiInsightRequest, model: string) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), env.geminiTimeoutMs);
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-  const response = await measureServerOperation(
-    "api /api/ai/insight.gemini",
-    () =>
-      fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-goog-api-key": env.geminiApiKey,
-        },
-        body: JSON.stringify(buildGeminiPayload(input)),
-      }),
-  );
-
-  const text = await response.text();
-
-  if (!response.ok) {
-    return {
-      insight: null,
-      error: `HTTP ${response.status}: ${text.slice(0, 500)}`,
-    };
-  }
 
   try {
+    const response = await measureServerOperation(
+      "api /api/ai/insight.gemini",
+      () =>
+        fetch(endpoint, {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": env.geminiApiKey,
+          },
+          body: JSON.stringify(buildGeminiPayload(input)),
+        }),
+    );
+
+    const text = await response.text();
+
+    if (!response.ok) {
+      return {
+        insight: null,
+        error: `HTTP ${response.status}: ${text.slice(0, 500)}`,
+      };
+    }
+
     const payload = JSON.parse(text) as {
       candidates?: Array<{
         content?: {
@@ -286,13 +342,22 @@ async function requestGeminiInsight(input: AiInsightRequest, model: string) {
 
     return { insight, error: null };
   } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return {
+        insight: null,
+        error: `Gemini request timed out after ${env.geminiTimeoutMs}ms.`,
+      };
+    }
+
     return {
       insight: null,
       error:
         error instanceof Error
-          ? `Invalid JSON response: ${error.message}`
-          : "Invalid JSON response.",
+          ? `Gemini request failed: ${error.message}`
+          : "Gemini request failed.",
     };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -336,6 +401,10 @@ export async function POST(request: NextRequest) {
 
       failures.push(`${model} => ${result.error}`);
       console.warn("Gemini model failed:", model, result.error);
+
+      if (result.error && isNonRetryableGeminiError(result.error)) {
+        break;
+      }
     }
 
     console.error("All Gemini models failed:", failures.join("\n"));

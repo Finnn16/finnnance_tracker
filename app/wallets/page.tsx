@@ -14,6 +14,15 @@ type WalletRow = {
   initialBalance: number;
   currentBalance: number;
   isDefault: boolean;
+  reconciliations: Array<{
+    id: string;
+    systemBalance: number;
+    actualBalance: number;
+    difference: number;
+    reason: string;
+    note: string | null;
+    reconciledAt: Date;
+  }>;
   _count: {
     transactions: number;
     transferTransactions: number;
@@ -26,6 +35,10 @@ export default async function WalletsPage() {
     prisma.wallet.findMany({
       where: { userId: user.id },
       include: {
+        reconciliations: {
+          orderBy: { reconciledAt: "desc" },
+          take: 5,
+        },
         _count: {
           select: {
             transactions: true,
@@ -46,6 +59,17 @@ export default async function WalletsPage() {
     isDefault: wallet.isDefault,
     transactionCount:
       wallet._count.transactions + wallet._count.transferTransactions,
+    lastReconciledAt:
+      wallet.reconciliations[0]?.reconciledAt.toISOString() || null,
+    reconciliationHistory: wallet.reconciliations.map((item) => ({
+      id: item.id,
+      systemBalance: item.systemBalance,
+      actualBalance: item.actualBalance,
+      difference: item.difference,
+      reason: item.reason,
+      note: item.note,
+      reconciledAt: item.reconciledAt.toISOString(),
+    })),
   }));
 
   return (

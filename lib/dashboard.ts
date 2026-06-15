@@ -1,6 +1,7 @@
 import {
   DebtStatus,
   DebtType,
+  TransactionDetailStatus,
   TransactionType,
   WalletType,
 } from "@/lib/prisma-enums";
@@ -12,7 +13,6 @@ import {
   monthInputValue,
   normalizeMonthStart,
 } from "@/lib/budgets";
-import { getGlobalAllocationSummary } from "@/lib/global-allocation";
 import { prisma } from "@/lib/prisma";
 import { calculateSavingsSummary } from "@/lib/savings";
 import { getWalletTypeLabel } from "@/lib/wallets";
@@ -57,6 +57,14 @@ function formatMonthRange(start: Date, end: Date) {
   return `${formatShortDate(start)} - ${formatShortDate(endDate)} (${monthName})`;
 }
 
+function formatMonthLabel(date: Date) {
+  return new Intl.DateTimeFormat("id-ID", {
+    month: "long",
+    year: "numeric",
+    timeZone: BUDGET_TIME_ZONE,
+  }).format(date);
+}
+
 function parseMonthKey(value?: string | null) {
   if (!value) {
     return null;
@@ -89,6 +97,8 @@ type DashboardWalletRow = {
   type: WalletType;
   currentBalance: number;
   isDefault: boolean;
+  lastBalanceCheckedAt: Date | null;
+  lastMatchedAt: Date | null;
   user: {
     name: string;
   };
@@ -107,7 +117,8 @@ type DashboardBudgetRow = {
   } | null;
 };
 
-type BudgetStatus = "SAFE" | "OVERPLANNED" | "UNDERFUNDED";
+type BudgetPlanStatus = "SAFE" | "OVERPLANNED";
+type CashCoverageStatus = "COVERED" | "GAP";
 type BudgetItemStatus = "SAFE" | "WARNING" | "DANGER" | "OVERBUDGET";
 
 type DashboardBudgetItem = {
@@ -122,6 +133,16 @@ type DashboardBudgetItem = {
   status: BudgetItemStatus;
 };
 
+type DashboardBudgetAdjustment = {
+  id: string;
+  budgetCategoryName: string;
+  previousAmount: number;
+  newAmount: number;
+  amount: number;
+  note: string | null;
+  createdAt: Date;
+};
+
 type DashboardTransactionRow = {
   id: string;
   type: TransactionType;
@@ -129,6 +150,7 @@ type DashboardTransactionRow = {
   transactionDate: Date;
   budgetMonth: Date | null;
   isPrepaid: boolean;
+  detailStatus: TransactionDetailStatus;
   description: string;
   category?: {
     name: string;
@@ -149,6 +171,12 @@ type DashboardTransactionRow = {
   } | null;
 };
 
+type DashboardPendingTransactionRow = DashboardTransactionRow & {
+  wallet: {
+    name: string;
+  };
+};
+
 type BudgetTransactionRow = {
   type: TransactionType;
   amount: number;
@@ -159,6 +187,13 @@ type BudgetTransactionRow = {
     id: string;
     name: string;
   } | null;
+};
+
+type BudgetIncomeRow = {
+  id: string;
+  amount: number;
+  budgetableAmount: number;
+  transactionDate: Date;
 };
 
 type SavingsLedgerRow = {
@@ -210,10 +245,13 @@ export async function getDashboardData(
     recent,
     budgets,
     budgetTransactions,
+    budgetIncomeTransactions,
     budgetableIncome,
     savingsLedgers,
-    globalAllocation,
+    budgetAdjustments,
     debts,
+    pendingTransactions,
+    pendingCount,
   ] = (await Promise.all([
     prisma.wallet.findMany({
       where: userScope,
@@ -273,6 +311,7 @@ export async function getDashboardData(
       where: {
         ...userScope,
         type: TransactionType.EXPENSE,
+        detailStatus: { not: TransactionDetailStatus.PENDING_DETAIL },
         OR: [
           {
             budgetMonth: {
@@ -293,6 +332,21 @@ export async function getDashboardData(
         budgetCategory: { select: { id: true, name: true } },
       },
     }),
+    prisma.transaction.findMany({
+      where: {
+        ...userScope,
+        type: TransactionType.INCOME,
+        detailStatus: { not: TransactionDetailStatus.PENDING_DETAIL },
+        budgetMonth: { gte: monthStart, lt: nextMonthStart },
+      },
+      select: {
+        id: true,
+        amount: true,
+        budgetableAmount: true,
+        transactionDate: true,
+      },
+      orderBy: [{ transactionDate: "asc" }, { createdAt: "asc" }],
+    }),
     prisma.transaction.aggregate({
       where: {
         ...userScope,
@@ -306,7 +360,14 @@ export async function getDashboardData(
       include: { user: { select: { name: true, email: true } } },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     }),
-    getGlobalAllocationSummary(prisma, selectedUserId || undefined),
+    prisma.budgetAdjustment.findMany({
+      where: {
+        ...userScope,
+        month: { gte: monthStart, lt: nextMonthStart },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 6,
+    }),
     prisma.debt.findMany({
       where: userScope,
       select: {
@@ -319,16 +380,42 @@ export async function getDashboardData(
         payments: { select: { amount: true } },
       },
     }),
+    prisma.transaction.findMany({
+      where: {
+        ...userScope,
+        detailStatus: TransactionDetailStatus.PENDING_DETAIL,
+        needsReview: true,
+      },
+      include: {
+        user: { select: { name: true } },
+        wallet: { select: { name: true } },
+        transferToWallet: { select: { name: true } },
+        category: { select: { name: true } },
+        budgetCategory: { select: { id: true, name: true } },
+      },
+      orderBy: [{ transactionDate: "desc" }, { createdAt: "desc" }],
+      take: 5,
+    }),
+    prisma.transaction.count({
+      where: {
+        ...userScope,
+        detailStatus: TransactionDetailStatus.PENDING_DETAIL,
+        needsReview: true,
+      },
+    }),
   ])) as [
     DashboardWalletRow[],
     DashboardTransactionRow[],
     DashboardTransactionRow[],
     DashboardBudgetRow[],
     BudgetTransactionRow[],
+    BudgetIncomeRow[],
     { _sum: { budgetableAmount: number | null } },
     SavingsLedgerRow[],
-    Awaited<ReturnType<typeof getGlobalAllocationSummary>>,
+    DashboardBudgetAdjustment[],
     DashboardDebtRow[],
+    DashboardPendingTransactionRow[],
+    number,
   ];
 
   const monthTransactions = activityTransactions.filter(
@@ -338,6 +425,12 @@ export async function getDashboardData(
   const chartTransactions = activityTransactions.filter(
     (transaction: DashboardTransactionRow) =>
       transaction.transactionDate >= chartStart,
+  );
+  const incomeReceivedBeforePeriod = budgetIncomeTransactions
+    .filter((transaction) => transaction.transactionDate < monthStart)
+    .reduce((total, transaction) => total + transaction.budgetableAmount, 0);
+  const firstIncomeReceivedBeforePeriod = budgetIncomeTransactions.find(
+    (transaction) => transaction.transactionDate < monthStart,
   );
 
   const income = monthTransactions
@@ -352,16 +445,18 @@ export async function getDashboardData(
         transaction.type === TransactionType.EXPENSE,
     )
     .reduce((total, transaction) => total + transaction.amount, 0);
-  const totalBalance = wallets.reduce(
+  const rawWalletBalance = wallets.reduce(
     (total, wallet) => total + wallet.currentBalance,
     0,
   );
   const savingsSummary = calculateSavingsSummary({
     ledgers: savingsLedgers,
-    totalWalletBalance: totalBalance,
+    totalWalletBalance: rawWalletBalance,
     monthStart,
     nextMonthStart,
   });
+  const reservedSavings = savingsSummary.currentBalance;
+  const operationalBalance = Math.max(rawWalletBalance - reservedSavings, 0);
   const totalBudget = budgets.reduce(
     (total, budget) => total + budget.amount,
     0,
@@ -409,17 +504,31 @@ export async function getDashboardData(
     totalSpent: budgetedSpent,
     unbudgetedSpent,
   });
-  const budgetStatus: BudgetStatus =
-    globalAllocation.shortfall > 0
-      ? "UNDERFUNDED"
-      : budgetSummary.availableToBudget < 0
-        ? "OVERPLANNED"
-        : "SAFE";
+  const readyToBudget = budgetSummary.budgetableIncome;
+  const budgetPlanGap = Math.max(totalBudget - readyToBudget, 0);
+  const budgetPlanStatus: BudgetPlanStatus =
+    budgetPlanGap > 0 ? "OVERPLANNED" : "SAFE";
+  const remainingActiveBudget = budgets.reduce((total, budget) => {
+    const spent = budget.budgetCategoryId
+      ? budgetSpent.get(budget.budgetCategoryId) || 0
+      : 0;
+
+    return total + Math.max(budget.amount - spent, 0);
+  }, 0);
+  const protectedMoney = remainingActiveBudget;
+  const freeCash = operationalBalance - protectedMoney;
+  const displayFreeCash = Math.max(freeCash, 0);
+  const cashCoverageGap = Math.max(protectedMoney - operationalBalance, 0);
+  const cashCoverageStatus: CashCoverageStatus =
+    cashCoverageGap > 0 ? "GAP" : "COVERED";
 
   const categoryTotals = new Map<string, number>();
 
   for (const transaction of monthTransactions) {
-    if (transaction.type !== TransactionType.EXPENSE) {
+    if (
+      transaction.type !== TransactionType.EXPENSE ||
+      transaction.detailStatus === TransactionDetailStatus.PENDING_DETAIL
+    ) {
       continue;
     }
 
@@ -527,28 +636,51 @@ export async function getDashboardData(
           : {
               title: "Cashflow looks calm",
               message:
-                "Income and wallet balances are readable. Keep transactions updated for better insight.",
+                "Income and operational balance are readable. Keep transactions updated for better insight.",
               tone: "positive" as const,
             };
 
   return {
+    budgetPeriodLabel: formatMonthLabel(monthStart),
     periodLabel: formatMonthRange(monthStart, nextMonthStart),
     summary: {
-      totalBalance,
+      totalBalance: operationalBalance,
       income,
       expense,
       netCashflow: income - expense,
       transactionCount: monthTransactions.length,
     },
     savings: savingsSummary,
+    wallet: {
+      totalWalletBalance: operationalBalance,
+    },
+    coverage: {
+      totalWalletBalance: operationalBalance,
+      reservedSavings,
+      remainingActiveBudget,
+      protectedMoney,
+      freeCash,
+      displayFreeCash,
+      cashCoverageGap,
+      cashCoverageStatus,
+    },
     budget: {
       budgetableIncome: budgetSummary.budgetableIncome,
+      readyToBudget,
       availableToBudget: budgetSummary.availableToBudget,
-      status: budgetStatus,
+      budgetSet: budgetSummary.totalBudget,
+      budgetPlanGap,
+      budgetPlanStatus,
+      status: budgetPlanStatus,
       totalBudget: budgetSummary.totalBudget,
       spent: budgetSummary.totalSpent,
+      budgetSpent: budgetSummary.totalSpent,
       unbudgetedSpent,
-      fundingShortfall: globalAllocation.shortfall,
+      remainingActiveBudget,
+      fundingShortfall: cashCoverageGap,
+      incomeReceivedBeforePeriod,
+      incomeReceivedBeforePeriodDate:
+        firstIncomeReceivedBeforePeriod?.transactionDate.toISOString() || null,
       usedPercentage:
         budgetSummary.totalBudget > 0
           ? Math.min(
@@ -559,6 +691,15 @@ export async function getDashboardData(
             )
           : 0,
       remaining: budgetSummary.remainingBudget,
+      adjustments: budgetAdjustments.map((adjustment) => ({
+        id: adjustment.id,
+        categoryName: adjustment.budgetCategoryName,
+        previousAmount: adjustment.previousAmount,
+        newAmount: adjustment.newAmount,
+        amount: adjustment.amount,
+        note: adjustment.note,
+        createdAt: adjustment.createdAt.toISOString(),
+      })),
       items: budgets.map<DashboardBudgetItem>((budget) => ({
         id: budget.id,
         userName: budget.user.name,
@@ -635,7 +776,21 @@ export async function getDashboardData(
       ownerName: wallet.user.name,
       currentBalance: wallet.currentBalance,
       isDefault: wallet.isDefault,
+      lastBalanceCheckedAt: wallet.lastBalanceCheckedAt?.toISOString() || null,
+      lastMatchedAt: wallet.lastMatchedAt?.toISOString() || null,
     })),
+    pendingReview: {
+      count: pendingCount,
+      items: pendingTransactions.map((transaction) => ({
+        id: transaction.id,
+        type: transaction.type,
+        amount: transaction.amount,
+        description: transaction.description,
+        userName: transaction.user.name,
+        walletName: transaction.wallet.name,
+        transactionDate: transaction.transactionDate.toISOString(),
+      })),
+    },
     recentTransactions: recent.map((transaction: DashboardTransactionRow) => ({
       id: transaction.id,
       type: transaction.type,
@@ -649,6 +804,7 @@ export async function getDashboardData(
       transactionDate: transaction.transactionDate.toISOString(),
       budgetMonth: transaction.budgetMonth?.toISOString() || null,
       isPrepaid: transaction.isPrepaid,
+      detailStatus: transaction.detailStatus,
     })),
     aiInsight,
   };

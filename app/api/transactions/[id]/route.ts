@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import {
+  TransactionConfirmationStatus,
+  TransactionDetailStatus,
   TransactionSource,
   TransactionType,
   SavingLedgerType,
@@ -43,6 +45,10 @@ type TransactionWithRelations = {
   savingsAmount: number;
   budgetableAmount: number;
   description: string;
+  source: TransactionSource;
+  confirmationStatus: TransactionConfirmationStatus;
+  detailStatus: TransactionDetailStatus;
+  needsReview: boolean;
   transactionDate: Date;
   budgetMonth: Date | null;
   isPrepaid: boolean;
@@ -85,6 +91,10 @@ function toTransactionView(transaction: TransactionWithRelations) {
     type: transaction.type,
     amount: transaction.amount,
     description: transaction.description,
+    source: transaction.source,
+    confirmationStatus: transaction.confirmationStatus,
+    detailStatus: transaction.detailStatus,
+    needsReview: transaction.needsReview,
     transactionDate: transaction.transactionDate.toISOString(),
     budgetMonth: transaction.budgetMonth?.toISOString() || null,
     isPrepaid: transaction.isPrepaid,
@@ -122,27 +132,14 @@ async function validateTransactionReferences(
     categoryId: string | null;
     budgetCategoryId: string | null;
     budgetMonth: Date | null;
-    transferFeeBudgetCategoryId: string | null;
-    transferFeeBudgetMonth: Date | null;
   },
 ) {
   if (payload.type === TransactionType.TRANSFER) {
-    const [wallet, transferToWallet, feeBudgetAssignment] = await Promise.all([
+    const [wallet, transferToWallet] = await Promise.all([
       prisma.wallet.findFirst({
         where: { id: payload.walletId, userId },
         select: { id: true },
       }),
-      payload.transferFeeBudgetCategoryId && payload.transferFeeBudgetMonth
-        ? prisma.budget.findFirst({
-            where: {
-              userId,
-              month: budgetMonthRange(payload.transferFeeBudgetMonth)!,
-              budgetCategoryId: payload.transferFeeBudgetCategoryId,
-              budgetCategory: { isHidden: false },
-            },
-            select: { id: true },
-          })
-        : Promise.resolve(null),
       prisma.wallet.findFirst({
         where: { id: payload.transferToWalletId || "", userId },
         select: { id: true },
@@ -155,10 +152,6 @@ async function validateTransactionReferences(
 
     if (!transferToWallet) {
       return "Destination wallet not found.";
-    }
-
-    if (payload.transferFeeBudgetCategoryId && !feeBudgetAssignment) {
-      return "Budget category is not assigned for the selected admin fee budget period.";
     }
 
     return null;
@@ -324,6 +317,9 @@ export async function PATCH(
           savingsAmount: result.data.savingsAmount,
           budgetableAmount: result.data.budgetableAmount,
           description: result.data.description,
+          confirmationStatus: TransactionConfirmationStatus.CONFIRMED,
+          detailStatus: TransactionDetailStatus.COMPLETED,
+          needsReview: false,
           transactionDate: result.data.transactionDate,
           budgetMonth: result.data.budgetMonth,
           isPrepaid: result.data.isPrepaid,

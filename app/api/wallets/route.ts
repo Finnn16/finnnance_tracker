@@ -21,6 +21,15 @@ function toWalletView(wallet: {
     transactions: number;
     transferTransactions: number;
   };
+  reconciliations: Array<{
+    id: string;
+    systemBalance: number;
+    actualBalance: number;
+    difference: number;
+    reason: string;
+    note: string | null;
+    reconciledAt: Date;
+  }>;
 }) {
   return {
     id: wallet.id,
@@ -31,6 +40,17 @@ function toWalletView(wallet: {
     isDefault: wallet.isDefault,
     transactionCount:
       wallet._count.transactions + wallet._count.transferTransactions,
+    lastReconciledAt:
+      wallet.reconciliations[0]?.reconciledAt.toISOString() || null,
+    reconciliationHistory: wallet.reconciliations.map((item) => ({
+      id: item.id,
+      systemBalance: item.systemBalance,
+      actualBalance: item.actualBalance,
+      difference: item.difference,
+      reason: item.reason,
+      note: item.note,
+      reconciledAt: item.reconciledAt.toISOString(),
+    })),
   };
 }
 
@@ -44,6 +64,10 @@ export async function GET() {
   const wallets = await prisma.wallet.findMany({
     where: { userId: auth.user.id },
     include: {
+      reconciliations: {
+        orderBy: { reconciledAt: "desc" },
+        take: 5,
+      },
       _count: {
         select: {
           transactions: true,

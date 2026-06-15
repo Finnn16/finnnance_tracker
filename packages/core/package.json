@@ -1,0 +1,81 @@
+{
+  "name": "@finnnance/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./budget-calculations": {
+      "types": "./src/budget-calculations.ts",
+      "import": "./src/budget-calculations.ts",
+      "default": "./src/budget-calculations.ts"
+    },
+    "./budget-categories": {
+      "types": "./src/budget-categories.ts",
+      "import": "./src/budget-categories.ts",
+      "default": "./src/budget-categories.ts"
+    },
+    "./budgets": {
+      "types": "./src/budgets.ts",
+      "import": "./src/budgets.ts",
+      "default": "./src/budgets.ts"
+    },
+    "./categories": {
+      "types": "./src/categories.ts",
+      "import": "./src/categories.ts",
+      "default": "./src/categories.ts"
+    },
+    "./dashboard-simple-card-library": {
+      "types": "./src/dashboard-simple-card-library.ts",
+      "import": "./src/dashboard-simple-card-library.ts",
+      "default": "./src/dashboard-simple-card-library.ts"
+    },
+    "./debts": {
+      "types": "./src/debts.ts",
+      "import": "./src/debts.ts",
+      "default": "./src/debts.ts"
+    },
+    "./display-text": {
+      "types": "./src/display-text.ts",
+      "import": "./src/display-text.ts",
+      "default": "./src/display-text.ts"
+    },
+    "./domain-enums": {
+      "types": "./src/domain-enums.ts",
+      "import": "./src/domain-enums.ts",
+      "default": "./src/domain-enums.ts"
+    },
+    "./money": {
+      "types": "./src/money.ts",
+      "import": "./src/money.ts",
+      "default": "./src/money.ts"
+    },
+    "./savings": {
+      "types": "./src/savings.ts",
+      "import": "./src/savings.ts",
+      "default": "./src/savings.ts"
+    },
+    "./transaction-balance": {
+      "types": "./src/transaction-balance.ts",
+      "import": "./src/transaction-balance.ts",
+      "default": "./src/transaction-balance.ts"
+    },
+    "./transactions": {
+      "types": "./src/transactions.ts",
+      "import": "./src/transactions.ts",
+      "default": "./src/transactions.ts"
+    },
+    "./wallets": {
+      "types": "./src/wallets.ts",
+      "import": "./src/wallets.ts",
+      "default": "./src/wallets.ts"
+    }
+  }
+}

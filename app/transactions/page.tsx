@@ -2,7 +2,13 @@ import { AppPageShell } from "@/components/AppPageShell";
 import { TransactionsClient } from "@/components/TransactionsClient";
 import { monthInputValue } from "@/lib/budgets";
 import { Prisma } from "@/lib/generated/prisma/client";
-import { TransactionType, UserRole } from "@/lib/prisma-enums";
+import {
+  TransactionConfirmationStatus,
+  TransactionDetailStatus,
+  TransactionSource,
+  TransactionType,
+  UserRole,
+} from "@/lib/prisma-enums";
 import { prisma } from "@/lib/prisma";
 import { requireUnlockedAppUser } from "@/lib/secure-app-user";
 import { measureServerOperation } from "@/lib/server-performance";
@@ -103,7 +109,14 @@ export default async function TransactionsPage({
   );
   const totalPages = Math.max(1, Math.ceil(totalTransactions / pageSize));
   const currentPage = Math.min(requestedPage, totalPages);
-  const [transactions, wallets, categories, budgetCategories, budgetExpenses] =
+  const [
+    transactions,
+    pendingTransactions,
+    wallets,
+    categories,
+    budgetCategories,
+    budgetExpenses,
+  ] =
     await measureServerOperation("page /transactions.data", () =>
       Promise.all([
         prisma.transaction.findMany({
@@ -123,6 +136,27 @@ export default async function TransactionsPage({
           orderBy: [{ transactionDate: "desc" }, { createdAt: "desc" }],
           skip: (currentPage - 1) * pageSize,
           take: pageSize,
+        }),
+        prisma.transaction.findMany({
+          where: {
+            ...(user.role === UserRole.ADMIN ? {} : { userId: user.id }),
+            detailStatus: TransactionDetailStatus.PENDING_DETAIL,
+            needsReview: true,
+          },
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+            wallet: { select: { id: true, name: true } },
+            transferToWallet: { select: { id: true, name: true } },
+            category: { select: { id: true, name: true } },
+            budgetCategory: { select: { id: true, name: true } },
+            savingLedgers: {
+              where: { type: "ADD" },
+              select: { note: true },
+              take: 1,
+            },
+          },
+          orderBy: [{ transactionDate: "desc" }, { createdAt: "desc" }],
+          take: 8,
         }),
         prisma.wallet.findMany({
           where: { userId: user.id },
@@ -177,6 +211,41 @@ export default async function TransactionsPage({
     (transaction: (typeof transactions)[number]) => ({
       id: transaction.id,
       userId: transaction.userId,
+            userName: transaction.user.name,
+      userEmail: transaction.user.email,
+      walletId: transaction.walletId,
+      walletName: transaction.wallet.name,
+      transferToWalletId: transaction.transferToWalletId,
+      transferToWalletName: transaction.transferToWallet?.name || null,
+      categoryId: transaction.categoryId,
+      categoryName: transaction.category?.name || null,
+      budgetCategoryId: transaction.budgetCategoryId,
+      budgetCategoryName: transaction.budgetCategory?.name || null,
+      type: transaction.type,
+      amount: transaction.amount,
+      description: transaction.description,
+      transactionDate: transaction.transactionDate.toISOString(),
+      budgetMonth: transaction.budgetMonth?.toISOString() || null,
+      isPrepaid: transaction.isPrepaid,
+      isUnbudgetedExpense:
+        transaction.type === TransactionType.EXPENSE &&
+        transaction.budgetCategoryId === null,
+      savingsAmount: transaction.savingsAmount || null,
+      savingsNote: transaction.savingLedgers[0]?.note || null,
+      budgetableAmount: transaction.budgetableAmount,
+      source: transaction.source as TransactionSource,
+      confirmationStatus:
+        transaction.confirmationStatus as TransactionConfirmationStatus,
+      detailStatus: transaction.detailStatus as TransactionDetailStatus,
+      needsReview: transaction.needsReview,
+      canManage: user.id === transaction.userId,
+    }),
+  );
+
+  const pendingTransactionViews = pendingTransactions.map(
+    (transaction: (typeof pendingTransactions)[number]) => ({
+      id: transaction.id,
+      userId: transaction.userId,
       userName: transaction.user.name,
       userEmail: transaction.user.email,
       walletId: transaction.walletId,
@@ -199,6 +268,11 @@ export default async function TransactionsPage({
       savingsAmount: transaction.savingsAmount || null,
       savingsNote: transaction.savingLedgers[0]?.note || null,
       budgetableAmount: transaction.budgetableAmount,
+      source: transaction.source as TransactionSource,
+      confirmationStatus:
+        transaction.confirmationStatus as TransactionConfirmationStatus,
+      detailStatus: transaction.detailStatus as TransactionDetailStatus,
+      needsReview: transaction.needsReview,
       canManage: user.id === transaction.userId,
     }),
   );
@@ -208,6 +282,7 @@ export default async function TransactionsPage({
       <TransactionsClient
         key={`${currentPage}-${pageSize}-${searchQuery}-${selectedTab}`}
         initialTransactions={transactionViews}
+        initialPendingTransactions={pendingTransactionViews}
         pagination={{
           page: currentPage,
           pageSize,

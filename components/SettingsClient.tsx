@@ -86,6 +86,12 @@ type CategoryGroupForm = {
   name: string;
 };
 
+type ShortfallCause = {
+  id: string;
+  label: string;
+  amount: number;
+};
+
 const emptyCategoryForm: CategoryForm = {
   name: "",
   type: TransactionType.EXPENSE,
@@ -196,6 +202,30 @@ function toCategoryGroupForm(group: CategoryGroupView): CategoryGroupForm {
   };
 }
 
+function getShortfallCauses(
+  budgets: BudgetView[],
+  shortfall: number,
+): ShortfallCause[] {
+  let remainingShortfall = shortfall;
+
+  return budgets
+    .map((budget) => ({
+      id: budget.id,
+      label: budget.budgetCategoryName,
+      amount: Math.max(budget.amount - budget.spent, 0),
+    }))
+    .filter((item) => item.amount > 0)
+    .sort((left, right) => right.amount - left.amount)
+    .map((item) => {
+      const amount = Math.min(item.amount, remainingShortfall);
+      remainingShortfall -= amount;
+
+      return { ...item, amount };
+    })
+    .filter((item) => item.amount > 0)
+    .slice(0, 3);
+}
+
 export function SettingsClient({
   initialCategories,
   initialCategoryGroups,
@@ -283,8 +313,13 @@ export function SettingsClient({
     month: monthInputValue(new Date()),
     amount: formatAmountInput("0"),
   });
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [selectedBudgetCategoryIds, setSelectedBudgetCategoryIds] = useState<
+    string[]
+  >([]);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showFundingCauses, setShowFundingCauses] = useState(false);
 
   const visibleUsers =
     currentUserRole === UserRole.ADMIN
@@ -335,6 +370,10 @@ export function SettingsClient({
       }),
     [selectedBudgetableIncome, selectedMonthBudgets, selectedUnbudgetedSpent],
   );
+  const selectedShortfallCauses = useMemo(
+    () => getShortfallCauses(selectedMonthBudgets, selectedFundingShortfall),
+    [selectedFundingShortfall, selectedMonthBudgets],
+  );
   const filteredCategories = useMemo(() => {
     const search = categorySearch.trim().toLowerCase();
 
@@ -375,6 +414,30 @@ export function SettingsClient({
       return matchesVisibility && matchesSearch;
     });
   }, [budgetCategories, budgetCategorySearch, showHidden]);
+  const selectedCategories = useMemo(
+    () =>
+      categories.filter((category) =>
+        selectedCategoryIds.includes(category.id),
+      ),
+    [categories, selectedCategoryIds],
+  );
+  const selectedBudgetCategories = useMemo(
+    () =>
+      budgetCategories.filter((category) =>
+        selectedBudgetCategoryIds.includes(category.id),
+      ),
+    [budgetCategories, selectedBudgetCategoryIds],
+  );
+  const areAllFilteredCategoriesSelected =
+    filteredCategories.length > 0 &&
+    filteredCategories.every((category) =>
+      selectedCategoryIds.includes(category.id),
+    );
+  const areAllFilteredBudgetCategoriesSelected =
+    filteredBudgetCategories.length > 0 &&
+    filteredBudgetCategories.every((category) =>
+      selectedBudgetCategoryIds.includes(category.id),
+    );
 
   const handleCreateCategory = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -588,6 +651,66 @@ export function SettingsClient({
     }
   };
 
+  const handleBulkCategoryVisibility = async (isHidden: boolean) => {
+    const targets = selectedCategories.filter(
+      (category) => category.isHidden !== isHidden,
+    );
+
+    if (targets.length === 0) {
+      setSelectedCategoryIds([]);
+      return;
+    }
+
+    setError(null);
+    setIsSubmitting(true);
+
+    try {
+      const updatedCategories = await Promise.all(
+        targets.map(async (category) => {
+          const response = await fetch(
+            `/api/settings/categories/${category.id}`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: category.name,
+                type: category.type,
+                group: category.group,
+                isHidden,
+              }),
+            },
+          );
+          const data = (await response.json()) as {
+            category?: CategoryView;
+            error?: string;
+          };
+
+          if (!response.ok || !data.category) {
+            throw new Error(data.error || "Failed to update categories.");
+          }
+
+          return data.category;
+        }),
+      );
+      const updatedById = new Map(
+        updatedCategories.map((category) => [category.id, category]),
+      );
+
+      setCategories((current) =>
+        current.map((category) => updatedById.get(category.id) || category),
+      );
+      setSelectedCategoryIds([]);
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update categories.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleDeleteCategory = async (categoryId: string) => {
     setError(null);
     setIsSubmitting(true);
@@ -735,6 +858,67 @@ export function SettingsClient({
     }
   };
 
+  const handleBulkBudgetCategoryVisibility = async (isHidden: boolean) => {
+    const targets = selectedBudgetCategories.filter(
+      (category) => category.isHidden !== isHidden,
+    );
+
+    if (targets.length === 0) {
+      setSelectedBudgetCategoryIds([]);
+      return;
+    }
+
+    setError(null);
+    setIsSubmitting(true);
+
+    try {
+      const updatedCategories = await Promise.all(
+        targets.map(async (category) => {
+          const response = await fetch(
+            `/api/settings/budget-categories/${category.id}`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                userId: category.userId,
+                name: category.name,
+                isHidden,
+              }),
+            },
+          );
+          const data = (await response.json()) as {
+            budgetCategory?: BudgetCategoryView;
+            error?: string;
+          };
+
+          if (!response.ok || !data.budgetCategory) {
+            throw new Error(
+              data.error || "Failed to update budget envelopes.",
+            );
+          }
+
+          return data.budgetCategory;
+        }),
+      );
+      const updatedById = new Map(
+        updatedCategories.map((category) => [category.id, category]),
+      );
+
+      setBudgetCategories((current) =>
+        current.map((category) => updatedById.get(category.id) || category),
+      );
+      setSelectedBudgetCategoryIds([]);
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update budget envelopes.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleDeleteBudgetCategory = async (categoryId: string) => {
     setError(null);
     setIsSubmitting(true);
@@ -877,6 +1061,70 @@ export function SettingsClient({
     }
   };
 
+  const handleAutoAdjustFundingShortfall = async () => {
+    const targetBudget = selectedMonthBudgets
+      .map((budget) => ({
+        ...budget,
+        reducibleAmount: Math.max(budget.amount - budget.spent, 0),
+      }))
+      .filter((budget) => budget.reducibleAmount > 0)
+      .sort((left, right) => right.reducibleAmount - left.reducibleAmount)[0];
+
+    if (!targetBudget) {
+      setError("Tidak ada budget aktif yang bisa dikurangi otomatis.");
+      return;
+    }
+
+    const reduction = Math.min(
+      selectedFundingShortfall,
+      targetBudget.reducibleAmount,
+    );
+    const nextAmount = Math.max(targetBudget.spent, targetBudget.amount - reduction);
+
+    setError(null);
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch(`/api/settings/budgets/${targetBudget.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: nextAmount,
+          note: "Auto adjust funding shortfall",
+        }),
+      });
+      const data = (await response.json()) as {
+        fundingShortfall?: number;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        setError(data.error || "Failed to auto adjust budget.");
+        return;
+      }
+
+      setBudgets((current) =>
+        nextAmount === 0
+          ? current.filter((budget) => budget.id !== targetBudget.id)
+          : current.map((budget) =>
+              budget.id === targetBudget.id
+                ? { ...budget, amount: nextAmount }
+                : budget,
+            ),
+      );
+      setFundingShortfalls((current) => ({
+        ...current,
+        [targetBudget.userId]:
+          data.fundingShortfall ?? current[targetBudget.userId] ?? 0,
+      }));
+      setShowFundingCauses(true);
+    } catch {
+      setError("Failed to auto adjust budget.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm sm:rounded-2xl">
       <div className="flex shrink-0 flex-col gap-3 border-b border-zinc-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
@@ -966,15 +1214,55 @@ export function SettingsClient({
                 <HiddenToggle checked={showHidden} onChange={setShowHidden} />
               </div>
 
+              <BulkSelectionBar
+                selectedCount={selectedCategories.length}
+                totalCount={filteredCategories.length}
+                allSelected={areAllFilteredCategoriesSelected}
+                isSubmitting={isSubmitting}
+                itemLabel="category"
+                onSelectAll={(checked) =>
+                  setSelectedCategoryIds(
+                    checked
+                      ? filteredCategories.map((category) => category.id)
+                      : [],
+                  )
+                }
+                onClear={() => setSelectedCategoryIds([])}
+                onHide={() => handleBulkCategoryVisibility(true)}
+                onUnhide={() => handleBulkCategoryVisibility(false)}
+              />
+
               <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 sm:space-y-3 sm:p-5">
                 {filteredCategories.length === 0 ? (
                   <EmptyPanel text="No categories match your filter." />
                 ) : null}
-                {filteredCategories.map((category) => (
+                {filteredCategories.map((category) => {
+                  const isSelected = selectedCategoryIds.includes(category.id);
+
+                  return (
                   <article
                     key={category.id}
-                    className="rounded-lg border border-zinc-100 p-3 sm:p-4"
+                    className={
+                      isSelected
+                        ? "rounded-lg border border-blue-200 bg-blue-50/40 p-3 sm:p-4"
+                        : "rounded-lg border border-zinc-100 p-3 sm:p-4"
+                    }
                   >
+                    <div className="flex gap-3">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(event) =>
+                          setSelectedCategoryIds((current) =>
+                            event.target.checked
+                              ? [...new Set([...current, category.id])]
+                              : current.filter((id) => id !== category.id),
+                          )
+                        }
+                        aria-label={`Select ${category.name}`}
+                        className="mt-1 h-4 w-4 shrink-0 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <div className="min-w-0 flex-1">
                     {editCategoryId === category.id ? (
                       <CategoryForm
                         form={editCategoryForm}
@@ -1013,8 +1301,11 @@ export function SettingsClient({
                         />
                       </div>
                     )}
+                      </div>
+                    </div>
                   </article>
-                ))}
+                  );
+                })}
               </div>
             </PanelList>
 
@@ -1138,15 +1429,57 @@ export function SettingsClient({
                 <HiddenToggle checked={showHidden} onChange={setShowHidden} />
               </div>
 
+              <BulkSelectionBar
+                selectedCount={selectedBudgetCategories.length}
+                totalCount={filteredBudgetCategories.length}
+                allSelected={areAllFilteredBudgetCategoriesSelected}
+                isSubmitting={isSubmitting}
+                itemLabel="envelope"
+                onSelectAll={(checked) =>
+                  setSelectedBudgetCategoryIds(
+                    checked
+                      ? filteredBudgetCategories.map((category) => category.id)
+                      : [],
+                  )
+                }
+                onClear={() => setSelectedBudgetCategoryIds([])}
+                onHide={() => handleBulkBudgetCategoryVisibility(true)}
+                onUnhide={() => handleBulkBudgetCategoryVisibility(false)}
+              />
+
               <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 sm:space-y-3 sm:p-5">
                 {filteredBudgetCategories.length === 0 ? (
                   <EmptyPanel text="No budget envelopes yet." />
                 ) : null}
-                {filteredBudgetCategories.map((category) => (
+                {filteredBudgetCategories.map((category) => {
+                  const isSelected = selectedBudgetCategoryIds.includes(
+                    category.id,
+                  );
+
+                  return (
                   <article
                     key={category.id}
-                    className="rounded-lg border border-zinc-100 p-3 sm:p-4"
+                    className={
+                      isSelected
+                        ? "rounded-lg border border-blue-200 bg-blue-50/40 p-3 sm:p-4"
+                        : "rounded-lg border border-zinc-100 p-3 sm:p-4"
+                    }
                   >
+                    <div className="flex gap-3">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(event) =>
+                          setSelectedBudgetCategoryIds((current) =>
+                            event.target.checked
+                              ? [...new Set([...current, category.id])]
+                              : current.filter((id) => id !== category.id),
+                          )
+                        }
+                        aria-label={`Select ${category.name}`}
+                        className="mt-1 h-4 w-4 shrink-0 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <div className="min-w-0 flex-1">
                     {editBudgetCategoryId === category.id ? (
                       <BudgetCategoryForm
                         form={editBudgetCategoryForm}
@@ -1191,8 +1524,11 @@ export function SettingsClient({
                         />
                       </div>
                     )}
+                      </div>
+                    </div>
                   </article>
-                ))}
+                  );
+                })}
               </div>
             </PanelList>
 
@@ -1244,24 +1580,76 @@ export function SettingsClient({
                     label="Unbudgeted Expense"
                     value={formatRupiah(selectedUnbudgetedSpent)}
                     tone={selectedUnbudgetedSpent > 0 ? "red" : "slate"}
-                    hint="Expense yang tidak memotong envelope, tapi tetap mengurangi available to budget dan saldo wallet."
+                    hint="Expense yang tidak memotong envelope, tapi tetap mengurangi available to budget dan saldo operasional."
                   />
                   <SummaryTile
                     label="Funding Shortfall"
                     value={formatRupiah(selectedFundingShortfall)}
                     tone={selectedFundingShortfall > 0 ? "red" : "slate"}
-                    hint="Selisih saat total savings dan sisa budget aktif lebih besar dari total saldo wallet."
+                    hint="Selisih saat sisa budget aktif lebih besar dari saldo operasional setelah savings dipisahkan."
                   />
                 </div>
                 {selectedFundingShortfall > 0 ? (
-                  <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
-                    UNDERFUNDED: Total savings dan sisa budget aktif melebihi
-                    saldo wallet sebesar{" "}
-                    <SensitiveAmount>
-                      {formatRupiah(selectedFundingShortfall)}
-                    </SensitiveAmount>
-                    .
-                  </p>
+                  <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-xs text-red-800">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <p className="leading-5">
+                        <span className="font-semibold">
+                          Budget aktif melebihi saldo operasional sebesar{" "}
+                          <SensitiveAmount>
+                            {formatRupiah(selectedFundingShortfall)}
+                          </SensitiveAmount>
+                          .
+                        </span>{" "}
+                        Kurangi budget atau tambahkan income untuk bulan ini.
+                      </p>
+                      <div className="flex shrink-0 gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setShowFundingCauses((current) => !current)
+                          }
+                          className="rounded-md border border-red-200 bg-white px-2.5 py-1 font-semibold text-red-700 transition hover:bg-red-50"
+                        >
+                          Lihat penyebab
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleAutoAdjustFundingShortfall}
+                          disabled={isSubmitting}
+                          className="rounded-md bg-red-600 px-2.5 py-1 font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Auto adjust
+                        </button>
+                      </div>
+                    </div>
+                    {showFundingCauses ? (
+                      <div className="mt-3 rounded-md bg-white px-3 py-2 text-red-700 ring-1 ring-red-100">
+                        <p className="font-semibold">Penyebab terbesar:</p>
+                        {selectedShortfallCauses.length > 0 ? (
+                          <div className="mt-2 space-y-1">
+                            {selectedShortfallCauses.map((cause) => (
+                              <div
+                                key={cause.id}
+                                className="flex items-center justify-between gap-3"
+                              >
+                                <span className="truncate">{cause.label}</span>
+                                <span className="shrink-0 font-semibold">
+                                  kurang{" "}
+                                  <SensitiveAmount>
+                                    {formatRupiah(cause.amount)}
+                                  </SensitiveAmount>
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-red-600">
+                            Belum ada envelope aktif yang bisa dikurangi.
+                          </p>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto p-5">
@@ -2071,6 +2459,78 @@ function SummaryTile({
         <SensitiveAmount>{value}</SensitiveAmount>
       </p>
     </article>
+  );
+}
+
+function BulkSelectionBar({
+  selectedCount,
+  totalCount,
+  allSelected,
+  isSubmitting,
+  itemLabel,
+  onSelectAll,
+  onClear,
+  onHide,
+  onUnhide,
+}: {
+  selectedCount: number;
+  totalCount: number;
+  allSelected: boolean;
+  isSubmitting: boolean;
+  itemLabel: string;
+  onSelectAll: (checked: boolean) => void;
+  onClear: () => void;
+  onHide: () => void;
+  onUnhide: () => void;
+}) {
+  const pluralLabel = selectedCount === 1 ? itemLabel : `${itemLabel}s`;
+
+  return (
+    <div className="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-3">
+      <label className="flex items-center gap-2 font-medium text-zinc-700">
+        <input
+          type="checkbox"
+          checked={allSelected}
+          onChange={(event) => onSelectAll(event.target.checked)}
+          disabled={totalCount === 0 || isSubmitting}
+          className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
+        />
+        Select visible
+        <span className="font-normal text-zinc-400">({totalCount})</span>
+      </label>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-zinc-500">
+          {selectedCount} {pluralLabel} selected
+        </span>
+        <button
+          type="button"
+          onClick={onHide}
+          disabled={selectedCount === 0 || isSubmitting}
+          className="rounded-lg border border-blue-200 px-2.5 py-1.5 font-medium text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Hide selected
+        </button>
+        <button
+          type="button"
+          onClick={onUnhide}
+          disabled={selectedCount === 0 || isSubmitting}
+          className="rounded-lg border border-emerald-200 px-2.5 py-1.5 font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Unhide selected
+        </button>
+        {selectedCount > 0 ? (
+          <button
+            type="button"
+            onClick={onClear}
+            disabled={isSubmitting}
+            className="rounded-lg border border-zinc-200 px-2.5 py-1.5 font-medium text-zinc-600 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
+    </div>
   );
 }
 

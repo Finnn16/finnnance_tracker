@@ -39,6 +39,10 @@ enum TransactionSource {
   WEB
   WHATSAPP
   SYSTEM
+  QUICK_ADD
+  IOS_SHORTCUT
+  RECONCILE
+  TRANSFER
 }
 
 enum TransactionConfirmationStatus {
@@ -46,6 +50,19 @@ enum TransactionConfirmationStatus {
   CONFIRMED
   CANCELLED
   FAILED
+}
+
+enum TransactionDetailStatus {
+  COMPLETED
+  PENDING_DETAIL
+  VOID
+}
+
+enum WalletBalanceCheckpointStatus {
+  MATCHED
+  UNMATCHED
+  RESOLVED
+  IGNORED
 }
 
 enum BudgetStatus {
@@ -87,8 +104,11 @@ model User {
   wallets          Wallet[]
   transactions     Transaction[]
   budgets          Budget[]
+  budgetAdjustments BudgetAdjustment[]
   budgetCategories BudgetCategory[]
   budgetMonths     BudgetMonth[]
+  walletReconciliations WalletReconciliation[]
+  walletBalanceCheckpoints WalletBalanceCheckpoint[]
   savingLedgers    SavingLedger[]
   debts            Debt[]
 
@@ -107,10 +127,14 @@ model Wallet {
   initialBalance Int        @default(0) @map("initial_balance")
   currentBalance Int        @default(0) @map("current_balance")
   isDefault      Boolean    @default(false) @map("is_default")
+  lastBalanceCheckedAt DateTime? @map("last_balance_checked_at")
+  lastMatchedAt        DateTime? @map("last_matched_at")
 
   user                 User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions         Transaction[] @relation("TransactionWallet")
   transferTransactions Transaction[] @relation("TransactionTransferWallet")
+  reconciliations       WalletReconciliation[]
+  balanceCheckpoints    WalletBalanceCheckpoint[]
   debts                Debt[]
   debtPayments         DebtPayment[]
 
@@ -121,6 +145,50 @@ model Wallet {
   @@unique([userId, name])
   @@index([userId])
   @@map("wallets")
+}
+
+model WalletReconciliation {
+  id            String   @id @default(cuid())
+  userId        String   @map("user_id")
+  walletId      String   @map("wallet_id")
+  systemBalance Int      @map("system_balance")
+  actualBalance Int      @map("actual_balance")
+  difference    Int
+  reason        String
+  note          String?
+  reconciledAt  DateTime @default(now()) @map("reconciled_at")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, reconciledAt])
+  @@index([walletId, reconciledAt])
+  @@map("wallet_reconciliations")
+}
+
+model WalletBalanceCheckpoint {
+  id               String                        @id @default(cuid())
+  userId           String                        @map("user_id")
+  walletId         String                        @map("wallet_id")
+  webBalance       Int                           @map("web_balance")
+  realBalance      Int                           @map("real_balance")
+  differenceAmount Int                           @map("difference_amount")
+  status           WalletBalanceCheckpointStatus
+  checkedAt        DateTime                      @default(now()) @map("checked_at")
+  note             String?
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, checkedAt])
+  @@index([walletId, checkedAt])
+  @@index([walletId, status, checkedAt])
+  @@map("wallet_balance_checkpoints")
 }
 
 model Category {
@@ -158,6 +226,7 @@ model Budget {
 
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   budgetCategory BudgetCategory? @relation(fields: [budgetCategoryId], references: [id], onDelete: SetNull)
+  adjustments    BudgetAdjustment[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -166,6 +235,29 @@ model Budget {
   @@index([month])
   @@index([budgetCategoryId])
   @@map("budgets")
+}
+
+model BudgetAdjustment {
+  id                 String   @id @default(cuid())
+  userId             String   @map("user_id")
+  budgetId           String?  @map("budget_id")
+  budgetCategoryId   String?  @map("budget_category_id")
+  budgetCategoryName String   @map("budget_category_name")
+  month              DateTime
+  previousAmount     Int      @map("previous_amount")
+  newAmount          Int      @map("new_amount")
+  amount             Int
+  note               String?
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  budget Budget? @relation(fields: [budgetId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@index([budgetId])
+  @@index([month])
+  @@map("budget_adjustments")
 }
 
 model BudgetCategory {
@@ -245,6 +337,8 @@ model Transaction {
   source             TransactionSource             @default(WEB)
   rawMessage         String?                       @map("raw_message")
   confirmationStatus TransactionConfirmationStatus @default(CONFIRMED) @map("confirmation_status")
+  detailStatus       TransactionDetailStatus       @default(COMPLETED) @map("detail_status")
+  needsReview        Boolean                       @default(false) @map("needs_review")
   transactionDate    DateTime                      @default(now()) @map("transaction_date")
   isPrepaid          Boolean                       @default(false) @map("is_prepaid")
 
@@ -263,6 +357,7 @@ model Transaction {
   @@index([categoryId])
   @@index([budgetCategoryId])
   @@index([budgetMonth])
+  @@index([detailStatus, needsReview])
   @@map("transactions")
 }
 

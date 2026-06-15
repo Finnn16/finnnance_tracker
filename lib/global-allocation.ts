@@ -105,7 +105,7 @@ export async function getGlobalAllocationSummary(
 export class GlobalAllocationError extends Error {
   constructor(public readonly shortfall: number) {
     super(
-      "Perubahan ini membuat total savings dan sisa budget aktif melebihi saldo wallet. Kurangi alokasi atau tambahkan saldo terlebih dahulu.",
+      "Perubahan ini membuat sisa budget aktif melebihi saldo operasional. Kurangi alokasi atau tambahkan saldo terlebih dahulu.",
     );
     this.name = "GlobalAllocationError";
   }

@@ -33,7 +33,7 @@ export function AppPageShell({
         }
       >
         <header className="sticky top-0 z-20 shrink-0 border-b border-zinc-200 bg-zinc-100/90 backdrop-blur">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
+          <div className="flex w-full items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
             <div>
               <p className="text-sm text-zinc-500">Finnnance Tracker</p>
               <h1 className="text-xl font-semibold text-zinc-950">{title}</h1>
@@ -52,8 +52,8 @@ export function AppPageShell({
         <main
           className={
             fill
-              ? "mx-auto flex min-h-0 w-full max-w-7xl flex-1 overflow-hidden px-4 pb-20 pt-5 sm:px-6 lg:px-8 lg:pb-5"
-              : "mx-auto w-full max-w-7xl px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:pb-8"
+              ? "flex min-h-0 w-full flex-1 overflow-hidden px-4 pb-20 pt-5 sm:px-6 lg:px-8 lg:pb-5"
+              : "w-full px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:pb-8"
           }
         >
           {children}

@@ -74,6 +74,25 @@ export async function POST(request: NextRequest) {
   }
 
   if (usageType === "RETURN_TO_AVAILABLE") {
+    const ledgers = await prisma.savingLedger.findMany({
+      where: { userId: auth.user.id },
+      select: { type: true, amount: true },
+    });
+    const currentSavings = ledgers.reduce((total, ledger) => {
+      const ledgerAmount = ledger.amount.toNumber();
+
+      return ledger.type === SavingLedgerType.WITHDRAW
+        ? total - ledgerAmount
+        : total + ledgerAmount;
+    }, 0);
+
+    if (amount > currentSavings) {
+      return NextResponse.json(
+        { error: "Amount melebihi saldo savings saat ini." },
+        { status: 400 },
+      );
+    }
+
     const ledger = await prisma.savingLedger.create({
       data: {
         userId: auth.user.id,

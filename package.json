@@ -2,12 +2,17 @@
   "name": "finnnance_tracker",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "dev": "next dev",
     "prebuild": "prisma generate",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "core:check": "tsc -p packages/core/tsconfig.json --noEmit",
     "test:budgeting": "node --test --test-isolation=none tests/budget-calculations.test.mjs",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
@@ -15,9 +20,15 @@
     "db:seed": "node prisma/seed.js",
     "db:backfill-budgetable": "node prisma/backfill-budgetable-income.js",
     "db:backfill-transfer-period": "node prisma/backfill-transfer-budget-period.js",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "mobile:start": "npm --workspace finnnance-mobile run start",
+    "mobile:start:clear": "npm --workspace finnnance-mobile run start:clear",
+    "mobile:ios": "npm --workspace finnnance-mobile run ios",
+    "mobile:web": "npm --workspace finnnance-mobile run web",
+    "mobile:lint": "npm --workspace finnnance-mobile run lint"
   },
   "dependencies": {
+    "@finnnance/core": "file:packages/core",
     "@clerk/nextjs": "^7.4.0",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
@@ -34,6 +45,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "chromatic": "^17.1.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "prisma": "^7.8.0",
